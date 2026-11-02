@@ -20,6 +20,9 @@ The IDE includes:
   component tray, event bindings, and generated C/Rez application sources.
 - Classic controls, graphics, Standard File, menu, serial, XMODEM, and ZMODEM
   component definitions and generated runtime support.
+- A separate System 7 Serial Agent prototype for remote Mac deployment and
+  debug-record testing. See the [Agent build and deployment guide](docs/serial-agent-deployment.md);
+  physical Mac operation remains unverified.
 - Build & Run workflows using Retro68, WSL, Mini vMac or Basilisk II, and a
   disposable System 7 volume. Build & Test uses Mini vMac and its HFS mailbox.
 - Offline in-IDE help. Open **Help → IDE Help** for the setup guide, developer

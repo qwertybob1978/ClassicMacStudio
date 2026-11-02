@@ -6,6 +6,7 @@
 - [Toolchain and emulator setup](toolchain-and-emulators.md)
 - [Target compatibility](compatibility-matrix.md)
 - [Serial agent manual](serial-agent-manual.md)
+- [Serial agent build, installation, and testing](serial-agent-deployment.md)
 - [Serial agent protocol](serial-agent-protocol.md)
 - [Tutorials and example projects](../tutorial/README.md)
 

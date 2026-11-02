@@ -111,6 +111,8 @@ most 512 bytes to the IDE. The Agent must be running and connected; the call
 returns an `OSErr` if the Agent is unavailable, the message is invalid, or the
 single-record queue is occupied. No retry or durable queue is provided.
 
+The build, first installation, emulator bootstrap, deployment workflow, and
+test limitations are in the [Serial Agent deployment guide](../../../docs/serial-agent-deployment.md).
 The target-side connector, cable wiring, `AgentPort` setup, emulator port
 mapping, and troubleshooting steps are in the
 [Serial Agent connection manual](../../../docs/serial-agent-manual.md). The manual's
@@ -140,4 +142,4 @@ out while the guest probe was showing its modal confirmation dialog, so STOP
 is not considered verified. The generated `MacStudioDebugLog` API, physical
 Macintosh behavior, and System 7.0 remain unverified. Screenshots of the IDE
 and guest are included in the [Serial Agent connection
-manual](../../serial-agent-manual.md).
+manual](../../../docs/serial-agent-manual.md).
