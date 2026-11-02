@@ -7,6 +7,11 @@ bind events to C handlers, build, and run in a Macintosh emulator. The complete
 Build & Run path is verified on the monochrome Mac SE and has generated color
 QuickDraw smoke apps running in Basilisk II with Color Classic and PowerBook ROMs.
 
+Why? Because I am a retro computer collector and having those machines makes me
+wonder if I can actually do something useful with them, such as writing a game 
+for them. Secondly, I share this to help my fellow collectors to enjoy their systems
+more too. 
+
 The IDE includes:
 
 - Target-aware form designers for the 512 × 342 monochrome Mac SE, 512 × 384
