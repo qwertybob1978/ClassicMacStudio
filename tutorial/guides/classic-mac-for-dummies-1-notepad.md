@@ -190,7 +190,9 @@ physical hardware compatibility has not been certified.
    MacStudio Agent installed, export the app disk as MacBinary II:
 
    ```powershell
-   wsl.exe --distribution Ubuntu -- bash -lc 'cd /mnt/e/own/MacStudio && scripts/wsl/mac-test-bridge.sh export-macbinary feasibility/samples/notepad/.build/DesignerForm.dsk DesignerForm feasibility/samples/notepad/.build/Notepad.bin'
+   $repoWsl = (wsl.exe --distribution Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+   $command = "cd '$repoWsl' && scripts/wsl/mac-test-bridge.sh export-macbinary feasibility/samples/notepad/.build/DesignerForm.dsk DesignerForm feasibility/samples/notepad/.build/Notepad.bin"
+   wsl.exe --distribution Ubuntu -- bash -lc $command
    ```
 
 3. In **Window → Serial Agent Connection**, connect at the same baud rate as

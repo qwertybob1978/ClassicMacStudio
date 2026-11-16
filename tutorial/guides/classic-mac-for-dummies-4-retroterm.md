@@ -216,7 +216,9 @@ checked-in implementation under the application name `RetroTerm`, use its
 standalone Retro68 build from PowerShell at the repository root:
 
 ```powershell
-wsl.exe -d Ubuntu -- bash <(sed 's/\r$//' /mnt/d/Repository/retro/ClassicMacStudio/scripts/wsl/build-hello-mac.sh) /mnt/d/Repository/retro/ClassicMacStudio/feasibility/samples/retroterm /mnt/d/Repository/retro/ClassicMacStudio/.local-tools/mac-image-build/retroterm RetroTerm
+$repoWsl = (wsl.exe -d Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+$command = "bash <(sed 's/\r`$//' '$repoWsl/scripts/wsl/build-hello-mac.sh') '$repoWsl/feasibility/samples/retroterm' '$repoWsl/.local-tools/mac-image-build/retroterm' RetroTerm"
+wsl.exe -d Ubuntu -- bash -lc $command
 ```
 
 That command creates
@@ -235,9 +237,10 @@ From PowerShell at the repository root, convert the standalone RetroTerm
 volume to a new SCSI ID 6 image and inspect it:
 
 ```powershell
-$djjr = '/mnt/d/Repository/retro/ClassicMacStudio/.local-tools/diskjockey/djjr'
-$volume = '/mnt/d/Repository/retro/ClassicMacStudio/.local-tools/mac-image-build/retroterm/RetroTerm.dsk'
-$hda = '/mnt/d/Repository/retro/ClassicMacStudio/.local-tools/mac-image-build/retroterm/HD6_RetroTerm.hda'
+$repoWsl = (wsl.exe -d Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+$djjr = "$repoWsl/.local-tools/diskjockey/djjr"
+$volume = "$repoWsl/.local-tools/mac-image-build/retroterm/RetroTerm.dsk"
+$hda = "$repoWsl/.local-tools/mac-image-build/retroterm/HD6_RetroTerm.hda"
 
 wsl.exe -d Ubuntu -- $djjr convert to-device $volume $hda
 wsl.exe -d Ubuntu -- $djjr analyze $hda

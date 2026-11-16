@@ -162,7 +162,9 @@ screen. A real-hardware run has not been certified.
    installed, export a MacBinary II package from the generated app disk:
 
    ```powershell
-   wsl.exe --distribution Ubuntu -- bash -lc 'cd /mnt/e/own/MacStudio && scripts/wsl/mac-test-bridge.sh export-macbinary feasibility/samples/text-adventure/.build/DesignerForm.dsk DesignerForm feasibility/samples/text-adventure/.build/TextAdventure.bin'
+   $repoWsl = (wsl.exe --distribution Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+   $command = "cd '$repoWsl' && scripts/wsl/mac-test-bridge.sh export-macbinary feasibility/samples/text-adventure/.build/DesignerForm.dsk DesignerForm feasibility/samples/text-adventure/.build/TextAdventure.bin"
+   wsl.exe --distribution Ubuntu -- bash -lc $command
    ```
 
 3. Transfer the package using **Window → Serial Agent Connection** or another

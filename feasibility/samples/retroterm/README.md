@@ -27,7 +27,9 @@ from the HFS volume after a run to inspect it.
 Build with the repository's Retro68 toolchain from PowerShell:
 
 ```powershell
-wsl.exe -d Ubuntu -- bash <(sed 's/\r$//' /mnt/d/Repository/retro/ClassicMacStudio/scripts/wsl/build-hello-mac.sh) /mnt/d/Repository/retro/ClassicMacStudio/feasibility/samples/retroterm /mnt/d/Repository/retro/ClassicMacStudio/.local-tools/mac-image-build/retroterm RetroTerm
+$repoWsl = (wsl.exe -d Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+$command = "bash <(sed 's/\r`$//' '$repoWsl/scripts/wsl/build-hello-mac.sh') '$repoWsl/feasibility/samples/retroterm' '$repoWsl/.local-tools/mac-image-build/retroterm' RetroTerm"
+wsl.exe -d Ubuntu -- bash -lc $command
 ```
 
 The build produces `RetroTerm.dsk`, an HFS application volume containing the
