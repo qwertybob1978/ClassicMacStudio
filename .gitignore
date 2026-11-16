@@ -75,3 +75,20 @@ coverage/
 *.rom
 *.ROM
 *.dsk
+
+# Agent-authored planning, scratch, and customization Markdown.
+**/AGENTS.md
+**/AGENT.md
+**/CLAUDE.md
+**/GEMINI.md
+**/CODEX.md
+**/copilot-instructions.md
+**/*.agent.md
+**/*.prompt.md
+**/*.instructions.md
+**/SKILL.md
+**/*plan*.md
+**/*progress*.md
+**/*checkpoint*.md
+**/*todo*.md
+**/*summary*.md
