@@ -216,7 +216,8 @@ checked-in implementation under the application name `RetroTerm`, use its
 standalone Retro68 build from PowerShell at the repository root:
 
 ```powershell
-$repoWsl = (wsl.exe -d Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+$repoWindows = (Get-Location).Path
+$repoWsl = (wsl.exe -d Ubuntu -- bash -lc "wslpath -a '$repoWindows'").Trim()
 $command = "bash <(sed 's/\r`$//' '$repoWsl/scripts/wsl/build-hello-mac.sh') '$repoWsl/feasibility/samples/retroterm' '$repoWsl/.local-tools/mac-image-build/retroterm' RetroTerm"
 wsl.exe -d Ubuntu -- bash -lc $command
 ```
@@ -237,7 +238,8 @@ From PowerShell at the repository root, convert the standalone RetroTerm
 volume to a new SCSI ID 6 image and inspect it:
 
 ```powershell
-$repoWsl = (wsl.exe -d Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+$repoWindows = (Get-Location).Path
+$repoWsl = (wsl.exe -d Ubuntu -- bash -lc "wslpath -a '$repoWindows'").Trim()
 $djjr = "$repoWsl/.local-tools/diskjockey/djjr"
 $volume = "$repoWsl/.local-tools/mac-image-build/retroterm/RetroTerm.dsk"
 $hda = "$repoWsl/.local-tools/mac-image-build/retroterm/HD6_RetroTerm.hda"

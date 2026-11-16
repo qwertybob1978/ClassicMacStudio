@@ -305,5 +305,5 @@ deno task test:all
 
 Unit tests and successful cross-compilation do not establish guest behavior.
 Run the app in the configured emulator (or target hardware) to validate guest
-rendering and hardware I/O. See [IMPLEMENTATION-PROGRESS.md](docs/implementation-progress.md)
-for the current verification record.
+rendering and hardware I/O. See the [compatibility matrix](docs/compatibility-matrix.md)
+for verified and unverified target behavior.

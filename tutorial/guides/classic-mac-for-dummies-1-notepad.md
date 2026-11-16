@@ -187,10 +187,12 @@ physical hardware compatibility has not been certified.
 
 1. Back up the target HFS disk and confirm the Mac boots System 7.
 2. Build the application in the IDE. If the Mac runs System 7.5.5 and has the
-   MacStudio Agent installed, export the app disk as MacBinary II:
+   MacStudio Agent installed, open PowerShell at the repository root and
+   export the app disk as MacBinary II:
 
    ```powershell
-   $repoWsl = (wsl.exe --distribution Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+   $repoWindows = (Get-Location).Path
+   $repoWsl = (wsl.exe --distribution Ubuntu -- bash -lc "wslpath -a '$repoWindows'").Trim()
    $command = "cd '$repoWsl' && scripts/wsl/mac-test-bridge.sh export-macbinary feasibility/samples/notepad/.build/DesignerForm.dsk DesignerForm feasibility/samples/notepad/.build/Notepad.bin"
    wsl.exe --distribution Ubuntu -- bash -lc $command
    ```

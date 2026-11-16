@@ -24,10 +24,12 @@ the app location, it falls back to the current directory. The log rolls over
 at 32 KiB and does not include transmitted or received text. Copy the file
 from the HFS volume after a run to inspect it.
 
-Build with the repository's Retro68 toolchain from PowerShell:
+From a PowerShell prompt opened at the repository root, build with the
+repository's Retro68 toolchain:
 
 ```powershell
-$repoWsl = (wsl.exe -d Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+$repoWindows = (Get-Location).Path
+$repoWsl = (wsl.exe -d Ubuntu -- bash -lc "wslpath -a '$repoWindows'").Trim()
 $command = "bash <(sed 's/\r`$//' '$repoWsl/scripts/wsl/build-hello-mac.sh') '$repoWsl/feasibility/samples/retroterm' '$repoWsl/.local-tools/mac-image-build/retroterm' RetroTerm"
 wsl.exe -d Ubuntu -- bash -lc $command
 ```

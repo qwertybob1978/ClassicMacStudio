@@ -58,7 +58,6 @@ __wcl__.lnk
 *.idb
 *.res
 *.err
-*.hda
 *.d
 *.log
 *.tmp

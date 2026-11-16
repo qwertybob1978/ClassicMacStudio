@@ -159,10 +159,12 @@ screen. A real-hardware run has not been certified.
 
 1. Back up the target HFS volume and confirm the Mac boots System 7.
 2. Build the application. On a System 7.5.5 Mac with the MacStudio Agent
-   installed, export a MacBinary II package from the generated app disk:
+   installed, open PowerShell at the repository root and export a MacBinary II
+   package from the generated app disk:
 
    ```powershell
-   $repoWsl = (wsl.exe --distribution Ubuntu -- wslpath -a (Get-Location).Path).Trim()
+   $repoWindows = (Get-Location).Path
+   $repoWsl = (wsl.exe --distribution Ubuntu -- bash -lc "wslpath -a '$repoWindows'").Trim()
    $command = "cd '$repoWsl' && scripts/wsl/mac-test-bridge.sh export-macbinary feasibility/samples/text-adventure/.build/DesignerForm.dsk DesignerForm feasibility/samples/text-adventure/.build/TextAdventure.bin"
    wsl.exe --distribution Ubuntu -- bash -lc $command
    ```
