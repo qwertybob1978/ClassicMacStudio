@@ -13,6 +13,7 @@ public enum MacStudioAgentMessageType : byte
     RunResult = 0x21,
     DebugRecord = 0x30,
     DebugAck = 0x31,
+    HostDiagnostics = 0x32,
     Stop = 0x40,
     StopResult = 0x41,
     Disconnect = 0x7E,

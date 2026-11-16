@@ -6,6 +6,7 @@
 #include "Files.h"
 #include "Fonts.h"
 #include "Menus.h"
+#include "OSUtils.h"
 #include "Processes.h"
 #include "Quickdraw.h"
 #include "Serial.h"
@@ -27,11 +28,16 @@
 #define AGENT_XMODEM_BLOCK_SIZE 128
 #define AGENT_XMODEM_PACKET_SIZE 133
 #define AGENT_STORAGE_DIRECTORY_NAME_LENGTH 9
+#define AGENT_DIAGNOSTIC_LOG_NAME_LENGTH 9
+#define AGENT_DIAGNOSTIC_LOG_MAX_SIZE (64UL * 1024UL)
+#define AGENT_DIAGNOSTIC_LINE_MAX_SIZE 640
+#define AGENT_HOST_DIAGNOSTIC_MAX_SIZE 512
 #define AGENT_STORAGE_DIRECTORY_ID 2L
 #define AGENT_DIRECTORY_FLAG 0x10
 #define AGENT_DEBUG_EVENT_CLASS 'MSAG'
 #define AGENT_DEBUG_EVENT_ID 'DBUG'
 #define AGENT_LAUNCH_EVENT_ID 'LNCH'
+#define AGENT_HOST_DIAGNOSTICS_MESSAGE_TYPE 0x32
 #define AGENT_RUN_RESULT_SUCCESS 0
 #define AGENT_RUN_RESULT_NOT_INSTALLED 1
 #define AGENT_RUN_RESULT_LAUNCH_FAILED 2
@@ -55,11 +61,20 @@
 #define AGENT_BAUD_RATE_FLAG_14400 (1UL << 12)
 #define AGENT_BAUD_RATE_FLAG_28800 (1UL << 13)
 #define AGENT_BAUD_RATE_MENU_ID 128
+#define AGENT_PORT_MENU_ID 129
+#define AGENT_AGENT_MENU_ID 130
+#define AGENT_PORT_COUNT 2
 #define AGENT_BAUD_RATE_COUNT 14
-#define AGENT_BAUD_RATE_BUSY_DIALOG_ID 128
-#define AGENT_BAUD_RATE_RESTORED_DIALOG_ID 129
-#define AGENT_BAUD_RATE_FATAL_DIALOG_ID 130
-#define AGENT_BAUD_RATE_SAVE_DIALOG_ID 131
+#define AGENT_SERIAL_BUSY_DIALOG_ID 128
+#define AGENT_SERIAL_RESTORED_DIALOG_ID 129
+#define AGENT_SERIAL_FATAL_DIALOG_ID 130
+#define AGENT_SERIAL_SAVE_DIALOG_ID 131
+#define AGENT_PORT_RESTORED_DIALOG_ID 132
+#define AGENT_RESTART_FATAL_DIALOG_ID 133
+#define AGENT_DIAGNOSTIC_LOG_FAILURE_DIALOG_ID 134
+#define AGENT_PORT_DIAGNOSTICS_DIALOG_ID 135
+#define AGENT_CONFIG_ERROR_DIALOG_ID 136
+#define AGENT_STORAGE_ERROR_DIALOG_ID 137
 #define AGENT_SUPPORTED_BAUD_RATE_FLAGS \
     (AGENT_BAUD_RATE_FLAG_9600 | AGENT_BAUD_RATE_FLAG_19200 | \
      AGENT_BAUD_RATE_FLAG_38400 | AGENT_BAUD_RATE_FLAG_57600 | \
@@ -77,14 +92,37 @@ static const unsigned char gStorageDirectoryName[] = {
     AGENT_STORAGE_DIRECTORY_NAME_LENGTH,
     'M', 'a', 'c', 'S', 't', 'u', 'd', 'i', 'o'
 };
+static const unsigned char gDiagnosticLogName[] = {
+    AGENT_DIAGNOSTIC_LOG_NAME_LENGTH,
+    'A', 'g', 'e', 'n', 't', '.', 'l', 'o', 'g'
+};
 static const unsigned char gSerialPortConfigName[] = {
     9, 'A', 'g', 'e', 'n', 't', 'P', 'o', 'r', 't'
 };
 static const unsigned char gSerialBaudConfigName[] = {
     13, 'A', 'g', 'e', 'n', 't', 'B', 'a', 'u', 'd', 'R', 'a', 't', 'e'
 };
+static const unsigned char gModemPortConfigValue[] = {
+    5, 'M', 'O', 'D', 'E', 'M'
+};
+static const unsigned char gPrinterPortConfigValue[] = {
+    7, 'P', 'R', 'I', 'N', 'T', 'E', 'R'
+};
 static const unsigned char gBaudRateMenuTitle[] = {
     9, 'B', 'a', 'u', 'd', ' ', 'R', 'a', 't', 'e'
+};
+static const unsigned char gPortMenuTitle[] = { 4, 'P', 'o', 'r', 't' };
+static const unsigned char gPortMenuItems[AGENT_PORT_COUNT][19] = {
+    { 16, 'M', 'o', 'd', 'e', 'm', ' ', '(', 'S', 'e', 'r', 'i', 'a', 'l', ' ', 'A', ')' },
+    { 18, 'P', 'r', 'i', 'n', 't', 'e', 'r', ' ', '(', 'S', 'e', 'r', 'i', 'a', 'l', ' ', 'B', ')' }
+};
+static const unsigned char gAgentMenuTitle[] = {
+    5, 'A', 'g', 'e', 'n', 't'
+};
+static const unsigned char gAgentMenuItems[3][15] = {
+    { 13, 'R', 'e', 's', 't', 'a', 'r', 't', ' ', 'A', 'g', 'e', 'n', 't' },
+    { 14, 'D', 'i', 'a', 'g', 'n', 'o', 's', 'e', ' ', 'P', 'o', 'r', 't', 's' },
+    { 4, 'E', 'x', 'i', 't' }
 };
 static const unsigned char gBaudRateMenuItems[AGENT_BAUD_RATE_COUNT][6] = {
     { 3, '3', '0', '0' },
@@ -169,6 +207,22 @@ static unsigned long gNextDebugSequence = 1;
 static AEEventHandlerUPP gDebugHandler;
 static AEEventHandlerUPP gLaunchHandler;
 static MenuHandle gBaudRateMenu;
+static MenuHandle gPortMenu;
+static MenuHandle gAgentMenu;
+static Boolean gShouldExit;
+static Boolean gDiagnosticLogFailureReported;
+static unsigned long gLastDiagnosticSampleTick;
+static unsigned long gSerialBytesReceived;
+static unsigned long gSerialBytesSent;
+static unsigned long gValidFramesReceived;
+static unsigned long gInvalidFrameBytes;
+static unsigned long gInvalidFrameCrcs;
+
+static void AgentLogEvent(const char *eventName, long value);
+static void AgentLogMessage(const char *messageText);
+static OSErr AgentLogHostDiagnostics(
+    const unsigned char *payload,
+    unsigned short payloadLength);
 
 static unsigned short AgentReadUInt16(const unsigned char *value)
 {
@@ -255,7 +309,13 @@ static OSErr AgentWriteFrame(
     writeLength = frameLength;
     error = FSWrite(gSerialOutputRef, &writeLength, gOutputFrame);
     if (error == noErr && writeLength != frameLength)
-        return ioErr;
+        error = ioErr;
+    if (error != noErr)
+    {
+        AgentLogEvent("SERIAL_FRAME_WRITE_ERROR", error);
+        return error;
+    }
+    gSerialBytesSent += frameLength;
     return error;
 }
 
@@ -268,7 +328,13 @@ static OSErr AgentWriteRaw(const unsigned char *data, unsigned short length)
         return paramErr;
     error = FSWrite(gSerialOutputRef, &writeLength, (Ptr)data);
     if (error == noErr && writeLength != length)
-        return ioErr;
+        error = ioErr;
+    if (error != noErr)
+    {
+        AgentLogEvent("SERIAL_RAW_WRITE_ERROR", error);
+        return error;
+    }
+    gSerialBytesSent += length;
     return error;
 }
 
@@ -468,7 +534,10 @@ static OSErr AgentBeginPut(
     OSErr error;
 
     if (payloadLength < 27)
+    {
+        AgentLogEvent("PUT_REJECTED_SHORT_BEGIN_PAYLOAD", payloadLength);
         return AgentSendReady(sessionId, resultCode);
+    }
 
     nameLength = payload[25];
     if (payloadLength != (unsigned short)(26 + nameLength) ||
@@ -476,38 +545,66 @@ static OSErr AgentBeginPut(
         AgentReadUInt32(payload + 16) == 0 ||
         AgentReadUInt32(payload + 16) > 0x7FFFFFFFUL ||
         payload[24] != 1)
+    {
+        AgentLogMessage("PUT_REJECTED_INVALID_BEGIN_METADATA");
         return AgentSendReady(sessionId, resultCode);
+    }
     if (!gSessionActive ||
         memcmp(sessionId, gSessionId, sizeof(gSessionId)) != 0)
+    {
+        AgentLogMessage("PUT_REJECTED_SESSION_MISMATCH");
         return AgentSendReady(sessionId, 5);
+    }
     error = AgentRefreshButState(&isButRunning);
     if (error != noErr)
+    {
+        AgentLogEvent("PUT_PROCESS_STATE_QUERY_ERROR", error);
         return AgentSendReady(sessionId, 4);
+    }
     if (gTransferActive || isButRunning)
+    {
+        AgentLogMessage("PUT_REJECTED_AGENT_OR_APPLICATION_BUSY");
         return AgentSendReady(sessionId, 5);
+    }
 
     error = AgentGetFreeBytes(&freeBytes);
     if (error != noErr)
+    {
+        AgentLogEvent("PUT_VOLUME_SPACE_QUERY_ERROR", error);
         return error;
+    }
     if (AgentReadUInt32(payload + 16) > freeBytes)
+    {
+        AgentLogEvent("PUT_REJECTED_INSUFFICIENT_FREE_BYTES", (long)freeBytes);
         return AgentSendReady(sessionId, 2);
+    }
 
     error = AgentDeleteStorageFile(gIncomingPackageName);
     if (error != noErr)
+    {
+        AgentLogEvent("PUT_TEMP_FILE_DELETE_ERROR", error);
         return error;
+    }
     error = FSMakeFSSpec(
         gVolumeRefNum,
         gStorageDirectoryId,
         (ConstStringPtr)gIncomingPackageName,
         &gIncomingPackageSpec);
     if (error != noErr && error != fnfErr)
+    {
+        AgentLogEvent("PUT_TEMP_FILE_SPEC_ERROR", error);
         return error;
+    }
     error = FSpCreate(&gIncomingPackageSpec, 'MSTA', 'TEMP', smSystemScript);
     if (error != noErr)
+    {
+        AgentLogEvent("PUT_TEMP_FILE_CREATE_ERROR", error);
         return AgentSendReady(sessionId, error == dskFulErr ? 2 : 4);
+    }
     error = FSpOpenDF(&gIncomingPackageSpec, fsWrPerm, &gIncomingFileRef);
     if (error != noErr)
     {
+        AgentLogEvent("PUT_TEMP_FILE_OPEN_ERROR", error);
         FSpDelete(&gIncomingPackageSpec);
         return AgentSendReady(sessionId, error == dskFulErr ? 2 : 4);
     }
@@ -526,8 +623,12 @@ static OSErr AgentBeginPut(
     gCancelByteCount = 0;
     gIncomingFileOpen = true;
     gTransferActive = true;
+    AgentLogEvent("PUT_PACKAGE_SIZE_BYTES", (long)gPackageLength);
+    AgentLogEvent("PUT_PACKAGE_EXPECTED_CRC32", (long)gExpectedPackageCrc32);
+    AgentLogEvent("PUT_VOLUME_FREE_BYTES", (long)freeBytes);
 
     error = AgentSendReady(sessionId, 0);
+    AgentLogEvent("PUT_READY_SEND_ERROR", error);
     if (error == noErr)
     {
         const unsigned char crcRequest = 'C';
@@ -535,6 +636,7 @@ static OSErr AgentBeginPut(
     }
     if (error != noErr)
     {
+        AgentLogEvent("PUT_INITIAL_XMODEM_REQUEST_ERROR", error);
         if (gIncomingFileOpen)
         {
             FSClose(gIncomingFileRef);
@@ -920,6 +1022,9 @@ static OSErr AgentFinishTransfer(void)
             gHasInstalledBuild = true;
         }
     }
+    AgentLogEvent("PUT_TRANSFER_RESULT_CODE", resultCode);
+    AgentLogEvent("PUT_TRANSFER_RECEIVED_BYTES", (long)gReceivedPackageLength);
+    AgentLogEvent("PUT_TRANSFER_VERIFIED_CRC32", (long)verifiedCrc32);
     error = AgentWriteRaw(&acknowledge, 1);
     if (error != noErr)
         return error;
@@ -931,6 +1036,8 @@ static OSErr AgentCancelTransfer(void)
     const unsigned char cancel[2] = { 0x18, 0x18 };
     OSErr error = AgentWriteRaw(cancel, sizeof(cancel));
     OSErr cleanupError = AgentCleanupIncomingPackage();
+    AgentLogEvent("PUT_TRANSFER_CANCELLED", error);
+    AgentLogEvent("PUT_CANCEL_CLEANUP_ERROR", cleanupError);
     return error != noErr ? error : cleanupError;
 }
 
@@ -950,6 +1057,7 @@ static OSErr AgentProcessXmodemPacket(void)
     if (gXmodemPacket[2] != (unsigned char)(blockNumber ^ 0xFF) ||
         expectedCrc != actualCrc)
     {
+        AgentLogEvent("XMODEM_BLOCK_HEADER_OR_CRC_ERROR", blockNumber);
         response = 0x15;
         return AgentWriteRaw(&response, 1);
     }
@@ -1064,13 +1172,22 @@ static OSErr AgentSendHelloAck(const unsigned char *sessionId)
 
     error = Gestalt(gestaltSystemVersion, &systemVersion);
     if (error != noErr)
+    {
+        AgentLogEvent("HELLO_GESTALT_SYSTEM_VERSION_ERROR", error);
         return error;
+    }
     error = Gestalt(gestaltMachineType, &machineType);
     if (error != noErr)
+    {
+        AgentLogEvent("HELLO_GESTALT_MACHINE_TYPE_ERROR", error);
         return error;
+    }
     error = AgentGetFreeBytes(&freeBytes);
     if (error != noErr)
+    {
+        AgentLogEvent("HELLO_VOLUME_SPACE_ERROR", error);
         return error;
+    }
 
     payload[4] = (unsigned char)((systemVersion >> 8) & 0xFF);
     payload[5] = (unsigned char)((systemVersion >> 4) & 0x0F);
@@ -1083,6 +1200,15 @@ static OSErr AgentSendHelloAck(const unsigned char *sessionId)
     {
         memcpy(gSessionId, sessionId, sizeof(gSessionId));
         gSessionActive = true;
+        AgentLogEvent("HELLO_ACK_SYSTEM_VERSION", systemVersion);
+        AgentLogEvent("HELLO_ACK_MACHINE_TYPE", machineType);
+        AgentLogEvent("HELLO_ACK_VOLUME_FREE_BYTES", freeBytes);
+        AgentLogEvent("HELLO_ACK_CAPABILITIES", 7);
+        AgentLogEvent("HELLO_ACK_SUPPORTED_BAUD_FLAGS", AGENT_SUPPORTED_BAUD_RATE_FLAGS);
+    }
+    else
+    {
+        AgentLogEvent("HELLO_ACK_SERIAL_WRITE_ERROR", error);
     }
     return error;
 }
@@ -1132,7 +1258,7 @@ static OSErr AgentRunInstalledBuild(
     LaunchParamBlockRec launchParameters;
     unsigned char resultCode = AGENT_RUN_RESULT_SUCCESS;
     Boolean isRunning = false;
-    OSErr error;
+    OSErr error = noErr;
 
     if (payloadLength != 16)
         return AgentSendProtocolError(sessionId, 0x20, "RUN requires a 16-byte Build ID");
@@ -1186,6 +1312,8 @@ static OSErr AgentRunInstalledBuild(
         }
     }
 
+    AgentLogEvent("RUN_RESULT_CODE", resultCode);
+    AgentLogEvent("RUN_PROCESS_QUERY_ERROR", error);
     return AgentSendBuildResult(0x21, sessionId, buildId, resultCode);
 }
 
@@ -1282,6 +1410,8 @@ static OSErr AgentStopRunningBuild(
             AgentRefreshButState(&isRunning);
     }
 
+    AgentLogEvent("STOP_RESULT_CODE", resultCode);
+    AgentLogEvent("STOP_PROCESS_QUERY_ERROR", error);
     return AgentSendBuildResult(0x41, sessionId, buildId, resultCode);
 }
 
@@ -1292,40 +1422,83 @@ static OSErr AgentHandleFrame(const unsigned char *frame, unsigned short payload
 
     if (frame[5] == 0x01)
     {
+        AgentLogEvent("HELLO_FRAME_RECEIVED", payloadLength);
         if (gTransferActive)
+        {
+            AgentLogMessage("HELLO_IGNORED_DURING_PACKAGE_TRANSFER");
             return noErr;
+        }
         if (payloadLength != 4)
+        {
+            AgentLogEvent("HELLO_INVALID_PAYLOAD_LENGTH", payloadLength);
             return noErr;
+        }
 
         minimumVersion = frame[AGENT_FRAME_HEADER_SIZE];
         maximumVersion = frame[AGENT_FRAME_HEADER_SIZE + 1];
         if (minimumVersion > maximumVersion ||
             minimumVersion > AGENT_PROTOCOL_VERSION ||
             maximumVersion < AGENT_PROTOCOL_VERSION)
+        {
+            AgentLogEvent("HELLO_PROTOCOL_RANGE_REJECTED", minimumVersion);
             return noErr;
+        }
 
-        return AgentSendHelloAck(frame + 8);
+        AgentLogEvent("HOST_PROTOCOL_MINIMUM_VERSION", minimumVersion);
+        AgentLogEvent("HOST_PROTOCOL_MAXIMUM_VERSION", maximumVersion);
+        AgentLogEvent(
+            "HOST_APPLICATION_MAJOR_VERSION",
+            frame[AGENT_FRAME_HEADER_SIZE + 2]);
+        AgentLogEvent(
+            "HOST_APPLICATION_MINOR_VERSION",
+            frame[AGENT_FRAME_HEADER_SIZE + 3]);
+        {
+            OSErr error = AgentSendHelloAck(frame + 8);
+            AgentLogEvent("HELLO_ACK_SEND_ERROR", error);
+            return error;
+        }
     }
 
     if (!gSessionActive ||
         memcmp(frame + 8, gSessionId, sizeof(gSessionId)) != 0)
+    {
+        AgentLogEvent("FRAME_IGNORED_WITHOUT_ACTIVE_SESSION", frame[5]);
         return noErr;
+    }
+
+    if (frame[5] == AGENT_HOST_DIAGNOSTICS_MESSAGE_TYPE)
+    {
+        OSErr error = AgentLogHostDiagnostics(
+            frame + AGENT_FRAME_HEADER_SIZE,
+            payloadLength);
+        AgentLogEvent("HOST_DIAGNOSTICS_ACCEPT_ERROR", error);
+        return noErr;
+    }
 
     if (frame[5] == 0x10)
+    {
+        AgentLogEvent("PUT_BEGIN_RECEIVED", payloadLength);
         return AgentBeginPut(
             frame + 8,
             frame + AGENT_FRAME_HEADER_SIZE,
             payloadLength);
+    }
     if (frame[5] == 0x20)
+    {
+        AgentLogEvent("RUN_REQUEST_RECEIVED", payloadLength);
         return AgentRunInstalledBuild(
             frame + 8,
             frame + AGENT_FRAME_HEADER_SIZE,
             payloadLength);
+    }
     if (frame[5] == 0x40)
+    {
+        AgentLogEvent("STOP_REQUEST_RECEIVED", payloadLength);
         return AgentStopRunningBuild(
             frame + 8,
             frame + AGENT_FRAME_HEADER_SIZE,
             payloadLength);
+    }
 
     if (frame[5] != 0x31 ||
         payloadLength != 5 ||
@@ -1336,6 +1509,7 @@ static OSErr AgentHandleFrame(const unsigned char *frame, unsigned short payload
 
     if (frame[AGENT_FRAME_HEADER_SIZE + 4] == 0)
     {
+        AgentLogEvent("DEBUG_RECORD_ACKNOWLEDGED", gDebugSequence);
         gDebugRecordPending = 0;
         gDebugRecordSent = 0;
         gDebugRecordLength = 0;
@@ -1367,21 +1541,33 @@ static pascal OSErr AgentHandleDebugWrite(
         sizeof(request),
         &requestSize);
     if (error != noErr)
+    {
+        AgentLogEvent("DEBUG_APPLEEVENT_READ_ERROR", error);
         return error;
+    }
     if (actualType != typeChar || requestSize < AGENT_APPLE_EVENT_PREFIX_SIZE)
+    {
+        AgentLogEvent("DEBUG_APPLEEVENT_INVALID_TYPE_OR_LENGTH", requestSize);
         return paramErr;
+    }
 
     textLength = AgentReadUInt16(request + 1);
     if (textLength > AGENT_MAX_DEBUG_RECORD_SIZE ||
         requestSize != AGENT_APPLE_EVENT_PREFIX_SIZE + textLength ||
         gDebugRecordPending)
+    {
+        AgentLogEvent("DEBUG_APPLEEVENT_REJECTED_LENGTH_OR_BUSY", textLength);
         return paramErr;
+    }
 
     for (index = 0; index < textLength; ++index)
     {
         unsigned char value = request[AGENT_APPLE_EVENT_PREFIX_SIZE + index];
         if (value != '\t' && (value < 0x20 || value > 0x7E))
+        {
+            AgentLogEvent("DEBUG_APPLEEVENT_REJECTED_NONPRINTABLE_BYTE", index);
             return paramErr;
+        }
     }
 
     gDebugSeverity = request[0];
@@ -1392,6 +1578,9 @@ static pascal OSErr AgentHandleDebugWrite(
         gNextDebugSequence = 1;
     gDebugRecordPending = 1;
     gDebugRecordSent = 0;
+    AgentLogEvent("DEBUG_APPLEEVENT_QUEUED_SEVERITY", gDebugSeverity);
+    AgentLogEvent("DEBUG_APPLEEVENT_QUEUED_LENGTH", gDebugRecordLength);
+    AgentLogEvent("DEBUG_APPLEEVENT_SEQUENCE", gDebugSequence);
     return noErr;
 }
 
@@ -1481,6 +1670,7 @@ static OSErr AgentSendPendingDebugRecord(void)
         (unsigned short)(AGENT_DEBUG_RECORD_HEADER_SIZE + gDebugRecordLength));
     if (error == noErr)
         gDebugRecordSent = 1;
+    AgentLogEvent("DEBUG_RECORD_SERIAL_SEND_ERROR", error);
     return error;
 }
 
@@ -1511,6 +1701,7 @@ static OSErr AgentParseFrames(void)
             gFrameBuffer[2] != 'A' ||
             gFrameBuffer[3] != 'G')
         {
+            ++gInvalidFrameBytes;
             AgentDropFramePrefix(1);
             continue;
         }
@@ -1524,6 +1715,7 @@ static OSErr AgentParseFrames(void)
             gFrameBuffer[7] != 0 ||
             payloadLength > AGENT_MAX_PAYLOAD_SIZE)
         {
+            ++gInvalidFrameBytes;
             AgentDropFramePrefix(1);
             continue;
         }
@@ -1537,14 +1729,19 @@ static OSErr AgentParseFrames(void)
         actualCrc = AgentCrc16(gFrameBuffer, (unsigned short)(frameLength - AGENT_FRAME_CRC_SIZE));
         if (expectedCrc != actualCrc)
         {
+            ++gInvalidFrameCrcs;
             AgentDropFramePrefix(1);
             continue;
         }
 
+        ++gValidFramesReceived;
         error = AgentHandleFrame(gFrameBuffer, payloadLength);
         AgentDropFramePrefix(frameLength);
         if (error != noErr)
+        {
+            AgentLogEvent("PROTOCOL_FRAME_HANDLER_ERROR", error);
             return error;
+        }
     }
     return noErr;
 }
@@ -1554,6 +1751,7 @@ static OSErr AgentReceiveBytes(const unsigned char *data, unsigned short length)
     unsigned short index;
     OSErr error;
 
+    gSerialBytesReceived += length;
     if (gTransferActive)
         return AgentReceiveXmodemBytes(data, length);
 
@@ -1577,13 +1775,28 @@ static OSErr AgentPollSerial(void)
     OSErr error;
 
     error = SerGetBuf(gSerialInputRef, &available);
-    if (error != noErr || available <= 0)
+    if (error != noErr)
+    {
+        AgentLogEvent("SERIAL_GET_BUFFER_ERROR", error);
+        return error;
+    }
+    if (available <= 0)
         return error;
 
+    AgentLogEvent("SERIAL_RX_AVAILABLE", available);
     readLength = available < sizeof(bytes) ? available : sizeof(bytes);
     error = FSRead(gSerialInputRef, &readLength, bytes);
-    if (error != noErr || readLength <= 0)
+    if (error != noErr)
+    {
+        AgentLogEvent("SERIAL_READ_ERROR", error);
         return error;
+    }
+    if (readLength <= 0)
+    {
+        AgentLogEvent("SERIAL_READ_NO_BYTES", readLength);
+        return error;
+    }
+    AgentLogEvent("SERIAL_RX_CHUNK", readLength);
     return AgentReceiveBytes(bytes, (unsigned short)readLength);
 }
 
@@ -1783,7 +1996,9 @@ static short AgentFindBaudRateIndex(short baudRate)
     return -1;
 }
 
-static OSErr AgentInitializeUserInterface(short baudRate)
+static OSErr AgentInitializeUserInterface(
+    Boolean usePrinterPort,
+    short baudRate)
 {
     short baudRateIndex = AgentFindBaudRateIndex(baudRate);
     unsigned short index;
@@ -1809,28 +2024,58 @@ static OSErr AgentInitializeUserInterface(short baudRate)
         AppendMenu(
             gBaudRateMenu,
             (ConstStringPtr)gBaudRateMenuItems[index]);
+        EnableItem(gBaudRateMenu, index + 1);
     }
     InsertMenu(gBaudRateMenu, 0);
+    EnableItem(gBaudRateMenu, 0);
     CheckItem(gBaudRateMenu, baudRateIndex + 1, true);
+
+    gPortMenu = NewMenu(
+        AGENT_PORT_MENU_ID,
+        (ConstStringPtr)gPortMenuTitle);
+    if (gPortMenu == NULL)
+        return memFullErr;
+    for (index = 0; index < AGENT_PORT_COUNT; ++index)
+    {
+        AppendMenu(gPortMenu, (ConstStringPtr)gPortMenuItems[index]);
+        EnableItem(gPortMenu, index + 1);
+    }
+    InsertMenu(gPortMenu, 0);
+    EnableItem(gPortMenu, 0);
+    CheckItem(gPortMenu, usePrinterPort ? 2 : 1, true);
+
+    gAgentMenu = NewMenu(
+        AGENT_AGENT_MENU_ID,
+        (ConstStringPtr)gAgentMenuTitle);
+    if (gAgentMenu == NULL)
+        return memFullErr;
+    for (index = 0; index < 3; ++index)
+    {
+        AppendMenu(gAgentMenu, (ConstStringPtr)gAgentMenuItems[index]);
+        EnableItem(gAgentMenu, index + 1);
+    }
+    InsertMenu(gAgentMenu, 0);
+    EnableItem(gAgentMenu, 0);
     DrawMenuBar();
     return noErr;
 }
 
-static OSErr AgentWriteSerialBaudRate(short baudRate)
+static OSErr AgentWriteTextConfig(
+    const unsigned char *configName,
+    const unsigned char *configValue)
 {
     FSSpec configSpec;
     short fileRef = 0;
-    short baudRateIndex = AgentFindBaudRateIndex(baudRate);
     long writeLength;
     OSErr error;
     OSErr closeError;
 
-    if (baudRateIndex < 0)
+    if (configName == NULL || configValue == NULL || configValue[0] == 0)
         return paramErr;
     error = FSMakeFSSpec(
         gVolumeRefNum,
         gStorageDirectoryId,
-        (ConstStringPtr)gSerialBaudConfigName,
+        (ConstStringPtr)configName,
         &configSpec);
     if (error == fnfErr)
     {
@@ -1849,14 +2094,13 @@ static OSErr AgentWriteSerialBaudRate(short baudRate)
     error = SetEOF(fileRef, 0);
     if (error == noErr)
         error = SetFPos(fileRef, fsFromStart, 0);
-    writeLength = gBaudRateMenuItems[baudRateIndex][0];
+    writeLength = configValue[0];
     if (error == noErr)
         error = FSWrite(
             fileRef,
             &writeLength,
-            (Ptr)(gBaudRateMenuItems[baudRateIndex] + 1));
-    if (error == noErr &&
-        writeLength != gBaudRateMenuItems[baudRateIndex][0])
+            (Ptr)(configValue + 1));
+    if (error == noErr && writeLength != configValue[0])
         error = ioErr;
     closeError = FSClose(fileRef);
     if (error == noErr)
@@ -1864,7 +2108,25 @@ static OSErr AgentWriteSerialBaudRate(short baudRate)
     return error;
 }
 
-static void AgentShowBaudRateDialog(short dialogId)
+static OSErr AgentWriteSerialPortChoice(Boolean usePrinterPort)
+{
+    return AgentWriteTextConfig(
+        gSerialPortConfigName,
+        usePrinterPort ? gPrinterPortConfigValue : gModemPortConfigValue);
+}
+
+static OSErr AgentWriteSerialBaudRate(short baudRate)
+{
+    short baudRateIndex = AgentFindBaudRateIndex(baudRate);
+
+    if (baudRateIndex < 0)
+        return paramErr;
+    return AgentWriteTextConfig(
+        gSerialBaudConfigName,
+        gBaudRateMenuItems[baudRateIndex]);
+}
+
+static void AgentShowSerialDialog(short dialogId)
 {
     DialogPtr dialog = GetNewDialog(dialogId, NULL, (WindowPtr)-1);
     short item = 0;
@@ -1876,6 +2138,407 @@ static void AgentShowBaudRateDialog(short dialogId)
     }
     ModalDialog(NULL, &item);
     DisposeDialog(dialog);
+}
+
+static unsigned short AgentAppendCString(
+    unsigned char *buffer,
+    unsigned short offset,
+    const char *text)
+{
+    while (*text != '\0')
+        buffer[offset++] = (unsigned char)*text++;
+    return offset;
+}
+
+static unsigned short AgentAppendUnsignedDecimal(
+    unsigned char *buffer,
+    unsigned short offset,
+    unsigned long value)
+{
+    unsigned char digits[10];
+    unsigned short count = 0;
+
+    do
+    {
+        digits[count++] = (unsigned char)('0' + (value % 10));
+        value /= 10;
+    } while (value != 0 && count < sizeof(digits));
+
+    while (count > 0)
+        buffer[offset++] = digits[--count];
+    return offset;
+}
+
+static unsigned short AgentAppendSignedDecimal(
+    unsigned char *buffer,
+    unsigned short offset,
+    long value)
+{
+    unsigned long magnitude;
+
+    if (value < 0)
+    {
+        buffer[offset++] = '-';
+        magnitude = (unsigned long)(-(value + 1)) + 1;
+    }
+    else
+    {
+        magnitude = (unsigned long)value;
+    }
+    return AgentAppendUnsignedDecimal(buffer, offset, magnitude);
+}
+
+static OSErr AgentAppendDiagnostic(
+    const unsigned char *message,
+    unsigned short messageLength)
+{
+    FSSpec logSpec;
+    short fileRef = 0;
+    long fileLength = 0;
+    LONGINT writeLength;
+    unsigned long timestamp;
+    unsigned char line[AGENT_DIAGNOSTIC_LINE_MAX_SIZE];
+    unsigned short lineLength = 0;
+    OSErr error;
+    OSErr closeError;
+
+    if (message == NULL ||
+        messageLength > AGENT_DIAGNOSTIC_LINE_MAX_SIZE - 32)
+        return paramErr;
+
+    error = FSMakeFSSpec(
+        gVolumeRefNum,
+        gStorageDirectoryId,
+        (ConstStringPtr)gDiagnosticLogName,
+        &logSpec);
+    if (error == fnfErr)
+    {
+        error = FSpCreate(&logSpec, 'TEXT', 'ttxt', smSystemScript);
+        if (error != noErr)
+            goto reportFailure;
+    }
+    else if (error != noErr)
+    {
+        goto reportFailure;
+    }
+
+    error = FSpOpenDF(&logSpec, fsWrPerm, &fileRef);
+    if (error != noErr)
+        goto reportFailure;
+
+    error = GetEOF(fileRef, &fileLength);
+    if (error == noErr && (unsigned long)fileLength >= AGENT_DIAGNOSTIC_LOG_MAX_SIZE)
+        error = SetEOF(fileRef, 0);
+    if (error == noErr)
+        error = SetFPos(fileRef, fsFromLEOF, 0);
+    if (error != noErr)
+        goto closeAndReport;
+
+    GetDateTime(&timestamp);
+    lineLength = AgentAppendCString(line, lineLength, "T=");
+    lineLength = AgentAppendUnsignedDecimal(line, lineLength, timestamp);
+    line[lineLength++] = ' ';
+    memcpy(line + lineLength, message, messageLength);
+    lineLength = (unsigned short)(lineLength + messageLength);
+    line[lineLength++] = '\r';
+    writeLength = lineLength;
+    error = FSWrite(fileRef, &writeLength, (Ptr)line);
+    if (error == noErr && writeLength != lineLength)
+        error = ioErr;
+
+closeAndReport:
+    closeError = FSClose(fileRef);
+    if (error == noErr)
+        error = closeError;
+    if (error == noErr)
+        return noErr;
+
+reportFailure:
+    if (!gDiagnosticLogFailureReported)
+    {
+        gDiagnosticLogFailureReported = true;
+        AgentShowSerialDialog(AGENT_DIAGNOSTIC_LOG_FAILURE_DIALOG_ID);
+    }
+    return error;
+}
+
+static void AgentLogEvent(const char *eventName, long value)
+{
+    unsigned char message[160];
+    unsigned short messageLength = 0;
+
+    messageLength = AgentAppendCString(message, messageLength, eventName);
+    messageLength = AgentAppendCString(message, messageLength, " value=");
+    messageLength = AgentAppendSignedDecimal(message, messageLength, value);
+    AgentAppendDiagnostic(message, messageLength);
+}
+
+static void AgentLogPortState(
+    const char *eventName,
+    Boolean usePrinterPort,
+    short baudRate,
+    OSErr error)
+{
+    unsigned char message[160];
+    unsigned short messageLength = 0;
+
+    messageLength = AgentAppendCString(message, messageLength, eventName);
+    messageLength = AgentAppendCString(message, messageLength, " port=");
+    messageLength = AgentAppendCString(
+        message,
+        messageLength,
+        usePrinterPort ? "PRINTER" : "MODEM");
+    messageLength = AgentAppendCString(message, messageLength, " baud=");
+    messageLength = AgentAppendUnsignedDecimal(
+        message,
+        messageLength,
+        (unsigned long)baudRate);
+    messageLength = AgentAppendCString(message, messageLength, " error=");
+    messageLength = AgentAppendSignedDecimal(message, messageLength, error);
+    AgentAppendDiagnostic(message, messageLength);
+}
+
+static void AgentLogSerialStatus(
+    const char *label,
+    short driverRef,
+    Boolean isInputDriver)
+{
+    SerStaRec status;
+    long available = 0;
+    OSErr statusError;
+    OSErr bufferError = noErr;
+    unsigned char message[256];
+    unsigned short messageLength = 0;
+
+    memset(&status, 0, sizeof(status));
+    statusError = SerStatus(driverRef, &status);
+    if (isInputDriver)
+        bufferError = SerGetBuf(driverRef, &available);
+
+    messageLength = AgentAppendCString(message, messageLength, label);
+    messageLength = AgentAppendCString(message, messageLength, " ref=");
+    messageLength = AgentAppendSignedDecimal(message, messageLength, driverRef);
+    messageLength = AgentAppendCString(message, messageLength, " statusError=");
+    messageLength = AgentAppendSignedDecimal(message, messageLength, statusError);
+    if (statusError == noErr)
+    {
+        messageLength = AgentAppendCString(message, messageLength, " cumulativeErrors=");
+        messageLength = AgentAppendUnsignedDecimal(message, messageLength, status.cumErrs);
+        messageLength = AgentAppendCString(message, messageLength, " xOffSent=");
+        messageLength = AgentAppendUnsignedDecimal(message, messageLength, status.xOffSent);
+        messageLength = AgentAppendCString(message, messageLength, " readPending=");
+        messageLength = AgentAppendUnsignedDecimal(message, messageLength, status.rdPend);
+        messageLength = AgentAppendCString(message, messageLength, " writePending=");
+        messageLength = AgentAppendUnsignedDecimal(message, messageLength, status.wrPend);
+        messageLength = AgentAppendCString(message, messageLength, " ctsHold=");
+        messageLength = AgentAppendUnsignedDecimal(message, messageLength, status.ctsHold);
+        messageLength = AgentAppendCString(message, messageLength, " xOffHold=");
+        messageLength = AgentAppendUnsignedDecimal(message, messageLength, status.xOffHold);
+        messageLength = AgentAppendCString(message, messageLength, " dsrHold=");
+        messageLength = AgentAppendUnsignedDecimal(message, messageLength, status.dsrHold);
+        messageLength = AgentAppendCString(message, messageLength, " modemStatus=");
+        messageLength = AgentAppendUnsignedDecimal(message, messageLength, status.modemStatus);
+    }
+    if (isInputDriver)
+    {
+        messageLength = AgentAppendCString(message, messageLength, " rxBufferError=");
+        messageLength = AgentAppendSignedDecimal(message, messageLength, bufferError);
+        messageLength = AgentAppendCString(message, messageLength, " rxAvailable=");
+        messageLength = AgentAppendSignedDecimal(message, messageLength, available);
+    }
+    AgentAppendDiagnostic(message, messageLength);
+}
+
+static void AgentLogMessage(const char *messageText)
+{
+    unsigned char message[AGENT_DIAGNOSTIC_LINE_MAX_SIZE - 32];
+    unsigned short messageLength = 0;
+
+    messageLength = AgentAppendCString(message, messageLength, messageText);
+    AgentAppendDiagnostic(message, messageLength);
+}
+
+static void AgentLogSystemSnapshot(void)
+{
+    long value = 0;
+    unsigned long freeBytes = 0;
+    OSErr error;
+
+    error = Gestalt(gestaltSystemVersion, &value);
+    AgentLogEvent(
+        error == noErr ? "SYSTEM_VERSION" : "SYSTEM_VERSION_GESTALT_ERROR",
+        error == noErr ? value : error);
+    error = Gestalt(gestaltMachineType, &value);
+    AgentLogEvent(
+        error == noErr ? "MACHINE_TYPE" : "MACHINE_TYPE_GESTALT_ERROR",
+        error == noErr ? value : error);
+    error = Gestalt(gestaltProcessorType, &value);
+    AgentLogEvent(
+        error == noErr ? "PROCESSOR_TYPE" : "PROCESSOR_TYPE_GESTALT_ERROR",
+        error == noErr ? value : error);
+    error = Gestalt(gestaltROMVersion, &value);
+    AgentLogEvent(
+        error == noErr ? "ROM_VERSION" : "ROM_VERSION_GESTALT_ERROR",
+        error == noErr ? value : error);
+    error = Gestalt(gestaltROMSize, &value);
+    AgentLogEvent(
+        error == noErr ? "ROM_SIZE" : "ROM_SIZE_GESTALT_ERROR",
+        error == noErr ? value : error);
+    error = AgentGetFreeBytes(&freeBytes);
+    AgentLogEvent(
+        error == noErr ? "APPLICATION_VOLUME_FREE_BYTES" : "VOLUME_SPACE_ERROR",
+        error == noErr ? (long)freeBytes : error);
+    AgentLogEvent("APPLICATION_VOLUME_REFNUM", gVolumeRefNum);
+    AgentLogEvent("STORAGE_DIRECTORY_ID", gStorageDirectoryId);
+    AgentLogMessage(
+        "SERIAL_DRIVER_STATUS_DOES_NOT_PROVE_CABLE_OR_REMOTE_PEER; "
+        "MODEM_STATUS_FIELDS_ARE_UNIMPLEMENTED_BY_THE_CLASSIC_DRIVER");
+}
+
+static OSErr AgentDiagnosePort(
+    Boolean usePrinterPort,
+    Boolean isActivePort,
+    short baudRate)
+{
+    const unsigned char *inputDriverName = usePrinterPort
+        ? gPrinterInputDriverName
+        : gModemInputDriverName;
+    const unsigned char *outputDriverName = usePrinterPort
+        ? gPrinterOutputDriverName
+        : gModemOutputDriverName;
+    short inputRef = 0;
+    short outputRef = 0;
+    OSErr error;
+    OSErr closeError;
+
+    AgentLogPortState(
+        "PORT_DIAGNOSTIC_BEGIN",
+        usePrinterPort,
+        baudRate,
+        noErr);
+    if (isActivePort)
+    {
+        AgentLogSerialStatus(
+            usePrinterPort ? "ACTIVE_PRINTER_INPUT" : "ACTIVE_MODEM_INPUT",
+            gSerialInputRef,
+            true);
+        AgentLogSerialStatus(
+            usePrinterPort ? "ACTIVE_PRINTER_OUTPUT" : "ACTIVE_MODEM_OUTPUT",
+            gSerialOutputRef,
+            false);
+        return noErr;
+    }
+
+    error = OpenDriver((ConstStringPtr)inputDriverName, &inputRef);
+    AgentLogEvent(
+        usePrinterPort ? "DIAG_PRINTER_INPUT_OPEN_ERROR" : "DIAG_MODEM_INPUT_OPEN_ERROR",
+        error);
+    if (error == noErr)
+    {
+        AgentLogSerialStatus(
+            usePrinterPort ? "PROBED_PRINTER_INPUT" : "PROBED_MODEM_INPUT",
+            inputRef,
+            true);
+        error = OpenDriver((ConstStringPtr)outputDriverName, &outputRef);
+        AgentLogEvent(
+            usePrinterPort ? "DIAG_PRINTER_OUTPUT_OPEN_ERROR" : "DIAG_MODEM_OUTPUT_OPEN_ERROR",
+            error);
+        if (error == noErr)
+        {
+            AgentLogSerialStatus(
+                usePrinterPort ? "PROBED_PRINTER_OUTPUT" : "PROBED_MODEM_OUTPUT",
+                outputRef,
+                false);
+        }
+    }
+
+    if (outputRef != 0)
+    {
+        closeError = CloseDriver(outputRef);
+        AgentLogEvent(
+            usePrinterPort ? "DIAG_PRINTER_OUTPUT_CLOSE_ERROR" : "DIAG_MODEM_OUTPUT_CLOSE_ERROR",
+            closeError);
+        if (error == noErr)
+            error = closeError;
+    }
+    if (inputRef != 0)
+    {
+        closeError = CloseDriver(inputRef);
+        AgentLogEvent(
+            usePrinterPort ? "DIAG_PRINTER_INPUT_CLOSE_ERROR" : "DIAG_MODEM_INPUT_CLOSE_ERROR",
+            closeError);
+        if (error == noErr)
+            error = closeError;
+    }
+    AgentLogPortState(
+        "PORT_DIAGNOSTIC_END",
+        usePrinterPort,
+        baudRate,
+        error);
+    return error;
+}
+
+static void AgentDiagnosePorts(Boolean currentUsePrinterPort, short baudRate)
+{
+    AgentLogMessage("PORT_PROBE_OPENS_AND_CLOSES_DRIVERS_ONLY; IT_SENDS_NO_TEST_BYTES");
+    AgentDiagnosePort(currentUsePrinterPort, true, baudRate);
+    AgentDiagnosePort(!currentUsePrinterPort, false, baudRate);
+    AgentLogMessage(
+        "A_SUCCESSFUL_DRIVER_PROBE_ONLY_MEANS_OPEN_SUCCEEDED; "
+        "CABLE_SIGNAL_INTEGRITY_REQUIRES_A_HOST_HELLO_HANDSHAKE");
+    AgentLogEvent("PORT_DIAGNOSTICS_COMPLETE", noErr);
+}
+
+static void AgentLogPeriodicSerialStatus(Boolean usePrinterPort, short baudRate)
+{
+    unsigned long currentTick = TickCount();
+
+    if (currentTick - gLastDiagnosticSampleTick < 3600)
+        return;
+    gLastDiagnosticSampleTick = currentTick;
+    AgentLogPortState(
+        "PERIODIC_AGENT_HEALTH",
+        usePrinterPort,
+        baudRate,
+        noErr);
+    AgentLogEvent("SERIAL_BYTES_RECEIVED", (long)gSerialBytesReceived);
+    AgentLogEvent("SERIAL_BYTES_SENT", (long)gSerialBytesSent);
+    AgentLogEvent("VALID_FRAMES_RECEIVED", (long)gValidFramesReceived);
+    AgentLogEvent("NON_FRAME_BYTES_SKIPPED", (long)gInvalidFrameBytes);
+    AgentLogEvent("FRAME_CRC_ERRORS", (long)gInvalidFrameCrcs);
+    AgentLogSerialStatus(
+        usePrinterPort ? "ACTIVE_PRINTER_INPUT" : "ACTIVE_MODEM_INPUT",
+        gSerialInputRef,
+        true);
+    AgentLogSerialStatus(
+        usePrinterPort ? "ACTIVE_PRINTER_OUTPUT" : "ACTIVE_MODEM_OUTPUT",
+        gSerialOutputRef,
+        false);
+}
+
+static OSErr AgentLogHostDiagnostics(
+    const unsigned char *data,
+    unsigned short length)
+{
+    unsigned char message[AGENT_DIAGNOSTIC_LINE_MAX_SIZE - 32];
+    unsigned short messageLength = 0;
+    unsigned short index;
+
+    if (data == NULL || length == 0 ||
+        length > AGENT_HOST_DIAGNOSTIC_MAX_SIZE)
+        return paramErr;
+    for (index = 0; index < length; ++index)
+    {
+        if (data[index] < 0x20 || data[index] > 0x7E)
+            return paramErr;
+    }
+    messageLength = AgentAppendCString(
+        message,
+        messageLength,
+        "HOST_MACHINE_DIAGNOSTICS ");
+    memcpy(message + messageLength, data, length);
+    messageLength = (unsigned short)(messageLength + length);
+    return AgentAppendDiagnostic(message, messageLength);
 }
 
 static OSErr AgentOpenSerialPort(Boolean usePrinterPort, short baudRate)
@@ -1890,126 +2553,323 @@ static OSErr AgentOpenSerialPort(Boolean usePrinterPort, short baudRate)
         : gModemOutputDriverName;
     OSErr error;
 
+    AgentLogPortState(
+        "SERIAL_OPEN_BEGIN",
+        usePrinterPort,
+        baudRate,
+        noErr);
     gSerialInputRef = 0;
     gSerialOutputRef = 0;
     error = OpenDriver((ConstStringPtr)inputDriverName, &gSerialInputRef);
     if (error != noErr)
+    {
+        AgentLogEvent("SERIAL_INPUT_DRIVER_OPEN_ERROR", error);
         return error;
+    }
+    AgentLogEvent("SERIAL_INPUT_DRIVER_OPEN_ERROR", noErr);
 
     error = OpenDriver((ConstStringPtr)outputDriverName, &gSerialOutputRef);
     if (error != noErr)
     {
-        CloseDriver(gSerialInputRef);
+        AgentLogEvent("SERIAL_OUTPUT_DRIVER_OPEN_ERROR", error);
+        AgentLogEvent("SERIAL_INPUT_DRIVER_CLOSE_ERROR", CloseDriver(gSerialInputRef));
         gSerialInputRef = 0;
         return error;
     }
+    AgentLogEvent("SERIAL_OUTPUT_DRIVER_OPEN_ERROR", noErr);
 
     error = SerReset(gSerialInputRef, configuration);
+    AgentLogEvent("SERIAL_INPUT_RESET_ERROR", error);
     if (error == noErr)
+    {
         error = SerReset(gSerialOutputRef, configuration);
+        AgentLogEvent("SERIAL_OUTPUT_RESET_ERROR", error);
+    }
     if (error == noErr)
+    {
         error = SerSetBuf(
             gSerialInputRef,
             (Ptr)gSerialInputBuffer,
             (short)sizeof(gSerialInputBuffer));
+        AgentLogEvent("SERIAL_INPUT_BUFFER_SETUP_ERROR", error);
+    }
     memset(&handshake, 0, sizeof(handshake));
     if (error == noErr)
+    {
         error = SerHShake(gSerialInputRef, &handshake);
+        AgentLogEvent("SERIAL_HANDSHAKE_SETUP_ERROR", error);
+    }
 
     if (error != noErr)
     {
-        CloseDriver(gSerialOutputRef);
-        CloseDriver(gSerialInputRef);
+        AgentLogEvent("SERIAL_OUTPUT_DRIVER_CLOSE_ERROR", CloseDriver(gSerialOutputRef));
+        AgentLogEvent("SERIAL_INPUT_DRIVER_CLOSE_ERROR", CloseDriver(gSerialInputRef));
         gSerialInputRef = 0;
         gSerialOutputRef = 0;
+        AgentLogPortState("SERIAL_OPEN_FAILED", usePrinterPort, baudRate, error);
+        return error;
+    }
+    AgentLogPortState("SERIAL_OPEN_SUCCEEDED", usePrinterPort, baudRate, noErr);
+    AgentLogSerialStatus(
+        usePrinterPort ? "ACTIVE_PRINTER_INPUT" : "ACTIVE_MODEM_INPUT",
+        gSerialInputRef,
+        true);
+    AgentLogSerialStatus(
+        usePrinterPort ? "ACTIVE_PRINTER_OUTPUT" : "ACTIVE_MODEM_OUTPUT",
+        gSerialOutputRef,
+        false);
+    return noErr;
+}
+
+static OSErr AgentCloseSerialPort(void)
+{
+    OSErr error = noErr;
+    OSErr closeError;
+
+    if (gSerialOutputRef != 0)
+    {
+        closeError = CloseDriver(gSerialOutputRef);
+        AgentLogEvent("SERIAL_OUTPUT_DRIVER_CLOSE_ERROR", closeError);
+        if (closeError == noErr)
+            gSerialOutputRef = 0;
+        else
+            error = closeError;
+    }
+    if (gSerialInputRef != 0)
+    {
+        closeError = CloseDriver(gSerialInputRef);
+        AgentLogEvent("SERIAL_INPUT_DRIVER_CLOSE_ERROR", closeError);
+        if (closeError == noErr)
+            gSerialInputRef = 0;
+        else if (error == noErr)
+            error = closeError;
     }
     return error;
 }
 
-static OSErr AgentChangeSerialBaudRate(
-    Boolean usePrinterPort,
+static void AgentResetSerialSession(void)
+{
+    gFrameLength = 0;
+    gSessionActive = false;
+    memset(gSessionId, 0, sizeof(gSessionId));
+}
+
+static OSErr AgentChangeSerialSettings(
+    Boolean currentUsePrinterPort,
     short currentBaudRate,
+    Boolean requestedUsePrinterPort,
     short requestedBaudRate)
 {
     OSErr error;
     OSErr restoreError;
 
-    error = CloseDriver(gSerialOutputRef);
+    error = AgentCloseSerialPort();
+    AgentLogEvent("SERIAL_RECONFIGURE_CLOSE_ERROR", error);
     if (error != noErr)
+    {
+        if (gSerialInputRef == 0 && gSerialOutputRef == 0)
+        {
+            restoreError = AgentOpenSerialPort(
+                currentUsePrinterPort,
+                currentBaudRate);
+            AgentLogPortState(
+                "SERIAL_RECONFIGURE_RESTORE_AFTER_CLOSE_FAILURE",
+                currentUsePrinterPort,
+                currentBaudRate,
+                restoreError);
+            if (restoreError != noErr)
+                return restoreError;
+        }
         return error;
-    gSerialOutputRef = 0;
-    error = CloseDriver(gSerialInputRef);
-    if (error != noErr)
-        return error;
-    gSerialInputRef = 0;
+    }
 
-    error = AgentOpenSerialPort(usePrinterPort, requestedBaudRate);
+    error = AgentOpenSerialPort(requestedUsePrinterPort, requestedBaudRate);
     if (error == noErr)
     {
-        gSessionActive = false;
-        memset(gSessionId, 0, sizeof(gSessionId));
+        AgentResetSerialSession();
+        AgentLogMessage("SERIAL_SESSION_RESET_AFTER_RECONFIGURATION");
         return noErr;
     }
 
-    restoreError = AgentOpenSerialPort(usePrinterPort, currentBaudRate);
+    restoreError = AgentOpenSerialPort(
+        currentUsePrinterPort,
+        currentBaudRate);
+    AgentLogPortState(
+        "SERIAL_RECONFIGURE_RESTORE",
+        currentUsePrinterPort,
+        currentBaudRate,
+        restoreError);
     return restoreError == noErr ? error : restoreError;
 }
 
-static OSErr AgentHandleBaudRateMenu(
+static OSErr AgentHandleMenu(
     const EventRecord *event,
-    Boolean usePrinterPort,
+    Boolean *usePrinterPort,
     short *baudRate)
 {
     unsigned long menuChoice;
     short menuId;
     short item;
-    short requestedBaudRate;
-    short previousBaudRateIndex;
-    short requestedBaudRateIndex;
     OSErr error;
 
+    if (usePrinterPort == NULL || baudRate == NULL)
+        return paramErr;
     menuChoice = (unsigned long)MenuSelect(event->where);
     HiliteMenu(0);
     menuId = (short)(menuChoice >> 16);
     item = (short)(menuChoice & 0xFFFF);
-    if (menuId != AGENT_BAUD_RATE_MENU_ID ||
-        item < 1 ||
-        item > AGENT_BAUD_RATE_COUNT)
-        return noErr;
-    if (gTransferActive || gIncomingFileOpen)
+    if (menuId == AGENT_BAUD_RATE_MENU_ID)
     {
-        AgentShowBaudRateDialog(AGENT_BAUD_RATE_BUSY_DIALOG_ID);
+        short requestedBaudRate;
+        short previousBaudRateIndex;
+        short requestedBaudRateIndex;
+
+        if (item < 1 || item > AGENT_BAUD_RATE_COUNT)
+            return noErr;
+        if (gTransferActive || gIncomingFileOpen)
+        {
+            AgentShowSerialDialog(AGENT_SERIAL_BUSY_DIALOG_ID);
+            return noErr;
+        }
+
+        requestedBaudRate = gSupportedBaudRates[item - 1];
+        if (requestedBaudRate == *baudRate)
+            return noErr;
+        AgentLogPortState(
+            "BAUD_MENU_REQUEST",
+            *usePrinterPort,
+            requestedBaudRate,
+            noErr);
+        error = AgentChangeSerialSettings(
+            *usePrinterPort,
+            *baudRate,
+            *usePrinterPort,
+            requestedBaudRate);
+        if (error != noErr)
+        {
+            if (gSerialInputRef != 0 && gSerialOutputRef != 0)
+            {
+                AgentShowSerialDialog(AGENT_SERIAL_RESTORED_DIALOG_ID);
+                return noErr;
+            }
+            AgentShowSerialDialog(AGENT_SERIAL_FATAL_DIALOG_ID);
+            return error;
+        }
+
+        previousBaudRateIndex = AgentFindBaudRateIndex(*baudRate);
+        requestedBaudRateIndex = AgentFindBaudRateIndex(requestedBaudRate);
+        if (previousBaudRateIndex >= 0)
+            CheckItem(gBaudRateMenu, previousBaudRateIndex + 1, false);
+        CheckItem(gBaudRateMenu, requestedBaudRateIndex + 1, true);
+        *baudRate = requestedBaudRate;
+
+        error = AgentWriteSerialBaudRate(requestedBaudRate);
+        AgentLogEvent("BAUD_SETTING_SAVE_ERROR", error);
+        if (error != noErr)
+            AgentShowSerialDialog(AGENT_SERIAL_SAVE_DIALOG_ID);
         return noErr;
     }
 
-    requestedBaudRate = gSupportedBaudRates[item - 1];
-    if (requestedBaudRate == *baudRate)
+    if (menuId == AGENT_PORT_MENU_ID)
+    {
+        Boolean requestedUsePrinterPort;
+
+        if (item < 1 || item > AGENT_PORT_COUNT)
+            return noErr;
+        if (gTransferActive || gIncomingFileOpen)
+        {
+            AgentShowSerialDialog(AGENT_SERIAL_BUSY_DIALOG_ID);
+            return noErr;
+        }
+
+        requestedUsePrinterPort = (Boolean)(item == 2);
+        if (requestedUsePrinterPort == *usePrinterPort)
+            return noErr;
+        AgentLogPortState(
+            "PORT_MENU_REQUEST",
+            requestedUsePrinterPort,
+            *baudRate,
+            noErr);
+        error = AgentChangeSerialSettings(
+            *usePrinterPort,
+            *baudRate,
+            requestedUsePrinterPort,
+            *baudRate);
+        if (error != noErr)
+        {
+            if (gSerialInputRef != 0 && gSerialOutputRef != 0)
+            {
+                AgentShowSerialDialog(AGENT_PORT_RESTORED_DIALOG_ID);
+                return noErr;
+            }
+            AgentShowSerialDialog(AGENT_SERIAL_FATAL_DIALOG_ID);
+            return error;
+        }
+
+        CheckItem(gPortMenu, *usePrinterPort ? 2 : 1, false);
+        CheckItem(gPortMenu, requestedUsePrinterPort ? 2 : 1, true);
+        *usePrinterPort = requestedUsePrinterPort;
+        AgentLogPortState(
+            "PORT_MENU_CHANGE_SUCCEEDED",
+            requestedUsePrinterPort,
+            *baudRate,
+            noErr);
+
+        error = AgentWriteSerialPortChoice(requestedUsePrinterPort);
+        AgentLogEvent("PORT_SETTING_SAVE_ERROR", error);
+        if (error != noErr)
+            AgentShowSerialDialog(AGENT_SERIAL_SAVE_DIALOG_ID);
         return noErr;
-    error = AgentChangeSerialBaudRate(
-        usePrinterPort,
+    }
+
+    if (menuId != AGENT_AGENT_MENU_ID)
+        return noErr;
+    if (gTransferActive || gIncomingFileOpen)
+    {
+        AgentShowSerialDialog(AGENT_SERIAL_BUSY_DIALOG_ID);
+        return noErr;
+    }
+
+    if (item == 3)
+    {
+        AgentLogMessage("AGENT_EXIT_REQUESTED_FROM_MENU");
+        gShouldExit = true;
+        return noErr;
+    }
+    if (item == 2)
+    {
+        AgentDiagnosePorts(*usePrinterPort, *baudRate);
+        AgentShowSerialDialog(AGENT_PORT_DIAGNOSTICS_DIALOG_ID);
+        return noErr;
+    }
+    if (item != 1)
+        return noErr;
+
+    AgentLogPortState(
+        "AGENT_RESTART_REQUESTED",
+        *usePrinterPort,
         *baudRate,
-        requestedBaudRate);
+        noErr);
+    error = AgentChangeSerialSettings(
+        *usePrinterPort,
+        *baudRate,
+        *usePrinterPort,
+        *baudRate);
     if (error != noErr)
     {
         if (gSerialInputRef != 0 && gSerialOutputRef != 0)
         {
-            AgentShowBaudRateDialog(AGENT_BAUD_RATE_RESTORED_DIALOG_ID);
+            AgentShowSerialDialog(AGENT_SERIAL_RESTORED_DIALOG_ID);
             return noErr;
         }
-        AgentShowBaudRateDialog(AGENT_BAUD_RATE_FATAL_DIALOG_ID);
+        AgentShowSerialDialog(AGENT_RESTART_FATAL_DIALOG_ID);
         return error;
     }
-
-    previousBaudRateIndex = AgentFindBaudRateIndex(*baudRate);
-    requestedBaudRateIndex = AgentFindBaudRateIndex(requestedBaudRate);
-    if (previousBaudRateIndex >= 0)
-        CheckItem(gBaudRateMenu, previousBaudRateIndex + 1, false);
-    CheckItem(gBaudRateMenu, requestedBaudRateIndex + 1, true);
-    *baudRate = requestedBaudRate;
-
-    error = AgentWriteSerialBaudRate(requestedBaudRate);
-    if (error != noErr)
-        AgentShowBaudRateDialog(AGENT_BAUD_RATE_SAVE_DIALOG_ID);
+    AgentLogPortState(
+        "AGENT_RESTART_SUCCEEDED",
+        *usePrinterPort,
+        *baudRate,
+        noErr);
     return noErr;
 }
 
@@ -2017,29 +2877,69 @@ int main(void)
 {
     EventRecord event;
     Boolean usePrinterPort = false;
-    short baudRate;
+    short baudRate = baud9600;
     OSErr error;
+    OSErr portConfigError;
+    OSErr baudConfigError;
 
+    error = AgentInitializeUserInterface(false, baud9600);
+    if (error != noErr)
+        return 1;
     error = AgentInitializeStorage();
     if (error != noErr)
+    {
+        AgentShowSerialDialog(AGENT_STORAGE_ERROR_DIALOG_ID);
         return 1;
-    error = AgentReadSerialPortChoice(&usePrinterPort);
-    if (error != noErr)
+    }
+    portConfigError = AgentReadSerialPortChoice(&usePrinterPort);
+    if (portConfigError != noErr)
+        usePrinterPort = false;
+    baudConfigError = AgentReadSerialBaudRate(&baudRate);
+    if (baudConfigError != noErr)
+        baudRate = baud9600;
+    CheckItem(gPortMenu, 1, false);
+    CheckItem(gPortMenu, usePrinterPort ? 2 : 1, true);
+    CheckItem(
+        gBaudRateMenu,
+        AgentFindBaudRateIndex(baud9600) + 1,
+        false);
+    CheckItem(
+        gBaudRateMenu,
+        AgentFindBaudRateIndex(baudRate) + 1,
+        true);
+    gLastDiagnosticSampleTick = TickCount();
+    AgentLogSystemSnapshot();
+    AgentLogPortState(
+        "STARTUP_CONFIGURATION",
+        usePrinterPort,
+        baudRate,
+        noErr);
+    AgentLogEvent("AGENT_PORT_CONFIG_READ_ERROR", portConfigError);
+    AgentLogEvent("AGENT_BAUD_CONFIG_READ_ERROR", baudConfigError);
+    if (portConfigError != noErr || baudConfigError != noErr)
+    {
+        AgentLogMessage(
+            "INVALID_OR_UNREADABLE_AGENTPORT_OR_AGENTBAUDRATE_CONFIG");
+        AgentShowSerialDialog(AGENT_CONFIG_ERROR_DIALOG_ID);
         return 1;
-    error = AgentReadSerialBaudRate(&baudRate);
-    if (error != noErr)
-        return 1;
-    error = AgentInitializeUserInterface(baudRate);
-    if (error != noErr)
-        return 1;
+    }
+
     error = AgentOpenSerialPort(usePrinterPort, baudRate);
     if (error != noErr)
+    {
+        AgentLogPortState(
+            "AGENT_STARTUP_SERIAL_OPEN_FAILED",
+            usePrinterPort,
+            baudRate,
+            error);
+        AgentShowSerialDialog(AGENT_SERIAL_FATAL_DIALOG_ID);
         return 1;
+    }
     error = AgentInstallDebugHandler();
     if (error != noErr)
     {
-        CloseDriver(gSerialOutputRef);
-        CloseDriver(gSerialInputRef);
+        AgentLogEvent("DEBUG_APPLEEVENT_HANDLER_INSTALL_ERROR", error);
+        AgentCloseSerialPort();
         return 1;
     }
     error = AgentInstallLaunchHandler();
@@ -2051,28 +2951,33 @@ int main(void)
             gDebugHandler,
             (Boolean)0);
         DisposeAEEventHandlerUPP(gDebugHandler);
-        CloseDriver(gSerialOutputRef);
-        CloseDriver(gSerialInputRef);
+        AgentLogEvent("LAUNCH_APPLEEVENT_HANDLER_INSTALL_ERROR", error);
+        AgentCloseSerialPort();
         return 1;
     }
+    AgentLogMessage("AGENT_READY; WAITING_FOR_HOST_HELLO");
 
-    for (;;)
+    while (!gShouldExit)
     {
         error = AgentPollSerial();
         if (error != noErr)
             break;
         WaitNextEvent(everyEvent, &event, 1, (RgnHandle)0);
         if (event.what == mouseDown)
-            error = AgentHandleBaudRateMenu(&event, usePrinterPort, &baudRate);
+            error = AgentHandleMenu(&event, &usePrinterPort, &baudRate);
         else if (event.what == kHighLevelEvent)
             AEProcessAppleEvent(&event);
-        if (error != noErr)
+        if (error != noErr || gShouldExit)
             break;
         error = AgentSendPendingDebugRecord();
         if (error != noErr)
             break;
+        AgentLogPeriodicSerialStatus(usePrinterPort, baudRate);
     }
 
+    AgentLogEvent(
+        gShouldExit ? "AGENT_EXITED_FROM_MENU" : "AGENT_LOOP_EXIT_ERROR",
+        error);
     AERemoveEventHandler(
         AGENT_DEBUG_EVENT_CLASS,
         AGENT_DEBUG_EVENT_ID,
@@ -2085,9 +2990,7 @@ int main(void)
         gLaunchHandler,
         (Boolean)0);
     DisposeAEEventHandlerUPP(gLaunchHandler);
-    if (CloseDriver(gSerialOutputRef) != noErr)
-        error = ioErr;
-    if (CloseDriver(gSerialInputRef) != noErr)
+    if (AgentCloseSerialPort() != noErr)
         error = ioErr;
     return error == noErr ? 0 : 1;
 }

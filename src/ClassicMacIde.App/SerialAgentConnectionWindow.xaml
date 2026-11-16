@@ -121,6 +121,11 @@
                     Click="StopButton_Click"
                     Content="Stop App"
                     IsEnabled="False" />
+            <Button x:Name="SaveHostLogButton"
+                    Margin="8,0,0,0"
+                    Padding="12,6"
+                    Click="SaveHostLogButton_Click"
+                    Content="Save Host Log..." />
         </StackPanel>
         <GroupBox Grid.Row="5"
                   Header="Connection">

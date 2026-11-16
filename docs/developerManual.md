@@ -544,6 +544,34 @@ Widget C and Rez extensions must use APIs present in the classic Toolbox and
 Retro68's `Multiverse.h`/`Multiverse.r`. Some Control and List Manager APIs are
 declared only in the umbrella header in the installed Retro68 interface set.
 
+## MacStudio Serial Agent menus
+
+The System 7 MacStudio Agent has **Port**, **Baud Rate**, and **Agent** menus.
+Choose **Modem (Serial A)** or **Printer (Serial B)** from **Port**, or select a
+supported rate from **Baud Rate**. A successful change closes both drivers for
+the old configuration before opening the selected port and rate, resets the
+serial session, and saves the setting in the Agent application's
+`MacStudio/AgentPort` or `MacStudio/AgentBaudRate` file. If opening the new
+configuration fails, the Agent attempts to reopen the previous configuration.
+
+**Agent → Restart Agent** closes and reopens the current serial connection and
+resets its protocol session without relaunching the Macintosh process.
+**Agent → Diagnose Ports** writes Mac serial-driver open/close and status
+results to `MacStudio/Agent.log` without transmitting probe bytes. **Agent →
+Exit** closes the serial drivers and exits cleanly. Configuration changes,
+restart, diagnostics, and exit are deferred while a package transfer is
+active. After a successful handshake, the Agent log also includes a compact
+host OS/runtime/COM-port snapshot. The Windows host separately records
+connection, COM-open, handshake, transfer, and error events under
+`%LOCALAPPDATA%\\ClassicMacStudio\\Logs\\SerialAgentHost.log`, which can be
+exported with **Save Host Log...**.
+
+The port probe can confirm driver open/status results, not cable continuity,
+RS-422 polarity, or a remote peer. A successful HELLO handshake is required for
+end-to-end confirmation. On a Macintosh Classic, AppleTalk/LocalTalk commonly
+uses the Printer port; disable AppleTalk or move it to another port before
+assigning that port to the Agent.
+
 ## Testing
 
 The isolated control runs reported one control each and `DONE`; the graphics

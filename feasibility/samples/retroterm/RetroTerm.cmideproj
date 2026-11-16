@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "name": "RetroTerm",
+  "targetProfileId": "mac-se-68k",
+  "formTitle": "RetroTerm 0.2",
+  "formTypeName": "RetroTermForm",
+  "formProperties": {
+    "showTitleBar": true,
+    "resizable": false,
+    "hasCloseBox": true,
+    "hasZoomBox": false,
+    "visible": true,
+    "centerOnScreen": true,
+    "movable": true,
+    "left": 12,
+    "top": 18,
+    "width": 462,
+    "height": 262
+  },
+  "controls": [
+    {
+      "id": "ConnectionStatus",
+      "widgetTypeId": "static-text",
+      "text": "Port closed. Select settings, then click Open.",
+      "x": 12,
+      "y": 8,
+      "width": 438,
+      "height": 18,
+      "properties": {},
+      "events": {}
+    },
+    {
+      "id": "PortLabel",
+      "widgetTypeId": "static-text",
+      "text": "Port",
+      "x": 12,
+      "y": 38,
+      "width": 34,
+      "height": 18,
+      "properties": {},
+      "events": {}
+    },
+    {
+      "id": "PortSelector",
+      "widgetTypeId": "popup-menu",
+      "text": "MODEM",
+      "x": 50,
+      "y": 36,
+      "width": 92,
+      "height": 22,
+      "properties": {
+        "items": "MODEM\nPRINTER",
+        "selectedIndex": "0"
+      },
+      "events": {}
+    },
+    {
+      "id": "BaudLabel",
+      "widgetTypeId": "static-text",
+      "text": "Baud",
+      "x": 158,
+      "y": 38,
+      "width": 38,
+      "height": 18,
+      "properties": {},
+      "events": {}
+    },
+    {
+      "id": "BaudSelector",
+      "widgetTypeId": "popup-menu",
+      "text": "9600",
+      "x": 202,
+      "y": 36,
+      "width": 76,
+      "height": 22,
+      "properties": {
+        "items": "300\n600\n1200\n1800\n2400\n3600\n4800\n7200\n9600\n14400\n19200\n28800\n38400\n57600",
+        "selectedIndex": "8"
+      },
+      "events": {}
+    },
+    {
+      "id": "OpenCloseButton",
+      "widgetTypeId": "button",
+      "text": "Open",
+      "x": 286,
+      "y": 35,
+      "width": 64,
+      "height": 24,
+      "properties": {},
+      "events": {}
+    },
+    {
+      "id": "LocalEcho",
+      "widgetTypeId": "checkbox",
+      "text": "Local Echo",
+      "x": 360,
+      "y": 38,
+      "width": 100,
+      "height": 18,
+      "properties": {
+        "checked": "true"
+      },
+      "events": {}
+    },
+    {
+      "id": "TerminalText",
+      "widgetTypeId": "static-text",
+      "text": "",
+      "x": 12,
+      "y": 68,
+      "width": 438,
+      "height": 164,
+      "properties": {},
+      "events": {}
+    },
+    {
+      "id": "Instructions",
+      "widgetTypeId": "static-text",
+      "text": "Click the terminal area to type. Echo shows sent characters.",
+      "x": 12,
+      "y": 240,
+      "width": 366,
+      "height": 18,
+      "properties": {},
+      "events": {}
+    },
+    {
+      "id": "QuitButton",
+      "widgetTypeId": "button",
+      "text": "Quit",
+      "x": 390,
+      "y": 238,
+      "width": 60,
+      "height": 20,
+      "properties": {},
+      "events": {}
+    }
+  ],
+  "components": [
+    {
+      "id": "SerialPort1",
+      "componentTypeId": "serial-port",
+      "properties": {
+        "port": "Modem",
+        "baud": "9600",
+        "dataBits": "8",
+        "parity": "None",
+        "stopBits": "1",
+        "flowControl": "None"
+      },
+      "events": {}
+    }
+  ]
+}

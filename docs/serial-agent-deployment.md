@@ -83,10 +83,20 @@ the Agent is already installed and running.
    flow control. To select the Printer port or another startup rate, create a
    `MacStudio` folder on the Agent application's volume and add plain ASCII
    `AgentPort` (`MODEM` or `PRINTER`) and/or `AgentBaudRate` (a supported
-   numeric rate) files. Restart the Agent after changing the port file.
+   numeric rate) files. While running, use the **Port** and **Baud Rate** menus
+   to change these settings; the Agent closes the current port and opens the
+   selected port/rate, and saves each selection. **Agent → Restart Agent**
+   reopens the current serial connection, while **Agent → Exit** closes the
+   Agent. **Agent → Diagnose Ports** records serial driver status and probe
+   results in `MacStudio/Agent.log`; it opens and closes unselected drivers
+   without sending test bytes. These controls are unavailable during a package
+   transfer.
 5. Connect from **Window → Serial Agent Connection** using the same port
    wiring and baud rate. The [connection manual](serial-agent-manual.md)
-   covers configuration and serial troubleshooting.
+   covers configuration and serial troubleshooting. The Agent log includes a
+   host snapshot after a successful handshake. Windows writes its persistent
+   connection log to `%LOCALAPPDATA%\\ClassicMacStudio\\Logs\\SerialAgentHost.log`;
+   use **Save Host Log...** in the connection window to export it.
 
 The Agent creates its `MacStudio` storage folder on its application volume if
 it does not exist. See the connection manual for exact accepted file contents

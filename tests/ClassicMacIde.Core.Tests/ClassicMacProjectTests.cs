@@ -41,6 +41,51 @@ public class ClassicMacProjectTests
     }
 
     [Fact]
+    public void RetroTermProjectLoadsWithNativePortBaudAndEchoControls()
+    {
+        var project = ClassicMacProjectSerializer.Load(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "Samples",
+                "RetroTerm.cmideproj"),
+            _registry,
+            _componentRegistry);
+
+        Assert.Equal("mac-se-68k", project.TargetProfileId);
+        Assert.Equal("RetroTermForm", project.FormTypeName);
+        Assert.True(project.FormProperties.HasCloseBox);
+        Assert.Contains(
+            project.Controls,
+            control => control.Id == "PortSelector" &&
+                control.WidgetTypeId == "popup-menu" &&
+                control.Properties["selectedIndex"] == "0");
+        Assert.Contains(
+            project.Controls,
+            control => control.Id == "BaudSelector" &&
+                control.WidgetTypeId == "popup-menu" &&
+                control.Properties["selectedIndex"] == "8");
+        Assert.Contains(
+            project.Controls,
+            control => control.Id == "LocalEcho" &&
+                control.WidgetTypeId == "checkbox" &&
+                control.Properties["checked"] == "true");
+        Assert.Contains(
+            project.Controls,
+            control => control.Id == "TerminalText" &&
+                control.WidgetTypeId == "static-text" &&
+                control.Text.Length == 0);
+        Assert.Contains(
+            project.Controls,
+            control => control.Id == "QuitButton" &&
+                control.WidgetTypeId == "button" &&
+                control.Text == "Quit");
+        Assert.Single(
+            project.Components,
+            component => component.Id == "SerialPort1" &&
+                component.ComponentTypeId == "serial-port");
+    }
+
+    [Fact]
     public void SerializeAndDeserializePreservesProjectAndWidgetProperties()
     {
         var controls = new[]

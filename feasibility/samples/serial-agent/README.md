@@ -1,17 +1,26 @@
 # MacStudio Serial Agent prototype
 
 This Retro68 68k application is an early System 7 background-process
-prototype with a **Baud Rate** menu. It opens either the Modem or Printer
-serial port at the configured classic Serial Manager rate (300–57,600 baud;
-9600 by default), 8-N-1, with no flow control, polls for bounded `MSAG` version
-1 frames, and
+prototype with **Port**, **Baud Rate**, and **Agent** menus. It opens either
+the Modem or Printer serial port at the configured classic Serial Manager rate
+(300–57,600 baud; 9600 by default), 8-N-1, with no flow control, polls for
+bounded `MSAG` version 1 frames, and
 responds to a compatible four-byte `HELLO` with `HELLO_ACK`. The absent
 `MacStudio/AgentPort` file selects Modem; the file can contain `MODEM` or
 `PRINTER` to select a port. `MacStudio/AgentBaudRate` sets the startup rate
 using one supported numeric value; the file may be absent for the 9600 default.
-While running, the Baud Rate menu changes the rate immediately and saves the
-selection to that file. The event loop calls `WaitNextEvent` every tick so
-MultiFinder can schedule foreground applications.
+While running, the Port and Baud Rate menus close the current serial drivers
+and reopen the selected port and rate, then save the selection to its config
+file. The Agent menu can restart the serial connection or exit the Agent.
+Settings cannot be changed while a package transfer is active. The event loop
+calls `WaitNextEvent` every tick so MultiFinder can schedule foreground
+applications.
+The **Agent → Diagnose Ports** command records driver open/close results,
+Serial Manager status, receive-buffer depth, host machine/COM-port details
+after a successful handshake, and periodic protocol counters in
+`MacStudio/Agent.log`. It does not send probe bytes. Windows-side connection
+diagnostics are also persisted under
+`%LOCALAPPDATA%\\ClassicMacStudio\\Logs\\SerialAgentHost.log`.
 For disposable emulator runs, `scripts/windows/boot-mac-se.ps1` can create this
 file before startup with `-AgentBaudRate <rate>` when autostarting
 `MacStudioAgent`.

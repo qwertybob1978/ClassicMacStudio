@@ -66,7 +66,7 @@ resource 'DITL' (129) {
         Button { enabled, "OK" };
 
         { 20, 20, 40, 400 },
-        StaticText { enabled, "Could not open that rate. The previous rate was restored." };
+        StaticText { enabled, "Could not open that setting. The previous setting was restored." };
     }
 };
 
@@ -108,6 +108,132 @@ resource 'DITL' (131) {
         Button { enabled, "OK" };
 
         { 20, 20, 40, 400 },
-        StaticText { enabled, "Rate changed, but the setting could not be saved." };
+        StaticText { enabled, "The changed setting could not be saved." };
+    }
+};
+
+resource 'DLOG' (132) {
+    { 60, 40, 150, 460 },
+    dBoxProc,
+    visible,
+    noGoAway,
+    0,
+    132,
+    "MacStudio Agent 0.1",
+    centerMainScreen
+};
+
+resource 'DITL' (132) {
+    {
+        { 56, 170, 76, 250 },
+        Button { enabled, "OK" };
+
+        { 20, 20, 40, 400 },
+        StaticText { enabled, "Could not open that port. The previous port was restored." };
+    }
+};
+
+resource 'DLOG' (133) {
+    { 60, 40, 150, 460 },
+    dBoxProc,
+    visible,
+    noGoAway,
+    0,
+    133,
+    "MacStudio Agent 0.1",
+    centerMainScreen
+};
+
+resource 'DITL' (133) {
+    {
+        { 56, 170, 76, 250 },
+        Button { enabled, "OK" };
+
+        { 20, 20, 40, 400 },
+        StaticText { enabled, "Could not restart the serial connection. The Agent is stopping." };
+    }
+};
+
+resource 'DLOG' (134) {
+    { 60, 40, 150, 460 },
+    dBoxProc,
+    visible,
+    noGoAway,
+    0,
+    134,
+    "MacStudio Agent 0.1",
+    centerMainScreen
+};
+
+resource 'DITL' (134) {
+    {
+        { 56, 170, 76, 250 },
+        Button { enabled, "OK" };
+
+        { 20, 20, 40, 400 },
+        StaticText { enabled, "Could not write MacStudio/Agent.log. Check free space and access." };
+    }
+};
+
+resource 'DLOG' (135) {
+    { 60, 40, 150, 460 },
+    dBoxProc,
+    visible,
+    noGoAway,
+    0,
+    135,
+    "MacStudio Agent 0.1",
+    centerMainScreen
+};
+
+resource 'DITL' (135) {
+    {
+        { 56, 170, 76, 250 },
+        Button { enabled, "OK" };
+
+        { 20, 20, 40, 400 },
+        StaticText { enabled, "Port probe results are in MacStudio/Agent.log. No test bytes were sent." };
+    }
+};
+
+resource 'DLOG' (136) {
+    { 60, 40, 150, 460 },
+    dBoxProc,
+    visible,
+    noGoAway,
+    0,
+    136,
+    "MacStudio Agent 0.1",
+    centerMainScreen
+};
+
+resource 'DITL' (136) {
+    {
+        { 56, 170, 76, 250 },
+        Button { enabled, "OK" };
+
+        { 20, 20, 40, 400 },
+        StaticText { enabled, "AgentPort or AgentBaudRate is invalid. See MacStudio/Agent.log." };
+    }
+};
+
+resource 'DLOG' (137) {
+    { 60, 40, 150, 460 },
+    dBoxProc,
+    visible,
+    noGoAway,
+    0,
+    137,
+    "MacStudio Agent 0.1",
+    centerMainScreen
+};
+
+resource 'DITL' (137) {
+    {
+        { 56, 170, 76, 250 },
+        Button { enabled, "OK" };
+
+        { 20, 20, 40, 400 },
+        StaticText { enabled, "Could not access the MacStudio folder on the Agent volume." };
     }
 };

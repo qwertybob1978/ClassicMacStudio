@@ -26,6 +26,9 @@
         <None Include="..\..\tutorial\samples\serial-terminal\SerialTerminal.cmideproj"
           Link="Samples\SerialTerminal.cmideproj"
           CopyToOutputDirectory="PreserveNewest" />
+        <None Include="..\..\feasibility\samples\retroterm\RetroTerm.cmideproj"
+          Link="Samples\RetroTerm.cmideproj"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

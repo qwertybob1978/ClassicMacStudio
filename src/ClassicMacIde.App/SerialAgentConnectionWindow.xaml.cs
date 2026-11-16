@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.IO.Ports;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
 using Microsoft.Win32;
 using ClassicMacIde.Core;
@@ -10,6 +12,14 @@ namespace ClassicMacIde.App;
 
 public partial class SerialAgentConnectionWindow : Window
 {
+    private static readonly string HostDiagnosticsDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "ClassicMacStudio",
+        "Logs");
+    private static readonly string HostDiagnosticsPath = Path.Combine(
+        HostDiagnosticsDirectory,
+        "SerialAgentHost.log");
+
     private SerialPort? _serialPort;
     private CancellableSerialPortStream? _serialStream;
     private MacStudioAgentSession? _session;
@@ -19,6 +29,9 @@ public partial class SerialAgentConnectionWindow : Window
     private CancellationTokenSource? _debugReceiveCancellation;
     private Task? _debugReceiveTask;
     private byte[]? _lastBuildId;
+    private string[] _availableComPorts = [];
+    private string _connectionStage = "idle";
+    private readonly object _diagnosticsLock = new();
     private bool _isConnecting;
     private bool _isTransferring;
     private bool _isCommandInProgress;
@@ -30,11 +43,43 @@ public partial class SerialAgentConnectionWindow : Window
     public SerialAgentConnectionWindow()
     {
         InitializeComponent();
+        LogHost("HOST_START", GetHostMachineDetails());
         RefreshPorts();
     }
 
     private void RefreshPortsButton_Click(object sender, RoutedEventArgs e) =>
         RefreshPorts();
+
+    private void SaveHostLogButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            AddExtension = true,
+            DefaultExt = ".log",
+            FileName = "ClassicMacStudio-SerialAgentHost.log",
+            Filter = "Log files (*.log)|*.log|Text files (*.txt)|*.txt",
+            OverwritePrompt = true,
+            Title = "Save Serial Agent host diagnostics",
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Copy(HostDiagnosticsPath, dialog.FileName, overwrite: true);
+            SetStatus($"Saved host diagnostics to {dialog.FileName}.");
+        }
+        catch (Exception error) when (
+            error is IOException or
+                UnauthorizedAccessException or
+                ArgumentException or
+                NotSupportedException)
+        {
+            SetStatus($"Could not save host diagnostics: {error.Message}");
+        }
+    }
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e) =>
         await ConnectToAgentAsync();
@@ -50,6 +95,7 @@ public partial class SerialAgentConnectionWindow : Window
                 await _session.DisconnectAsync();
             }
 
+            LogHost("DISCONNECT", "Host closed the Agent session.");
             SetStatus("Disconnected.");
         }
         catch (Exception error) when (
@@ -59,6 +105,7 @@ public partial class SerialAgentConnectionWindow : Window
                 UnauthorizedAccessException or
                 Win32Exception)
         {
+            LogHost("DISCONNECT_FAILURE", error.ToString());
             SetStatus($"Disconnect failed: {error.Message}");
         }
         finally
@@ -154,6 +201,9 @@ public partial class SerialAgentConnectionWindow : Window
         _isTransferring = true;
         UpdateControls();
         SetStatus($"Sending {Path.GetFileName(dialog.FileName)} to {destinationName}...");
+        LogHost(
+            "PACKAGE_TRANSFER_BEGIN",
+            $"File={Path.GetFileName(dialog.FileName)}; destination={destinationName}");
 
         try
         {
@@ -169,6 +219,14 @@ public partial class SerialAgentConnectionWindow : Window
 
             _lastBuildId = package.BuildId.ToArray();
             _isApplicationRunning = false;
+            LogHost(
+                "PACKAGE_TRANSFER_COMPLETE",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Length={0}; CRC32={1:X8}; BuildID={2}",
+                    package.PackageLength,
+                    package.PackageCrc32,
+                    Convert.ToHexString(package.BuildId.Span)));
             SetStatus(
                 $"Installed {destinationName} ({package.PackageLength:N0} bytes).");
             AgentDetailsText.Text += string.Format(
@@ -179,6 +237,7 @@ public partial class SerialAgentConnectionWindow : Window
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
+            LogHost("PACKAGE_TRANSFER_CANCELLED", "The host cancelled the transfer.");
             SetStatus("Transfer cancelled.");
         }
         catch (Exception error) when (
@@ -190,6 +249,7 @@ public partial class SerialAgentConnectionWindow : Window
                 TimeoutException or
                 Win32Exception)
         {
+            LogHost("PACKAGE_TRANSFER_FAILURE", error.ToString());
             SetStatus($"Transfer failed: {error.Message}");
         }
         finally
@@ -232,6 +292,7 @@ public partial class SerialAgentConnectionWindow : Window
         _isCommandInProgress = true;
         UpdateControls();
         SetStatus(stop ? "Requesting the application to quit..." : "Launching the installed application...");
+        LogHost("AGENT_COMMAND_BEGIN", stop ? "Command=STOP" : "Command=RUN");
 
         try
         {
@@ -239,6 +300,13 @@ public partial class SerialAgentConnectionWindow : Window
             var resultCode = stop
                 ? await session.StopAsync(buildId, cancellation.Token)
                 : await session.RunAsync(buildId, cancellation.Token);
+            LogHost(
+                "AGENT_COMMAND_RESULT",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Command={0}; Result={1}",
+                    stop ? "STOP" : "RUN",
+                    resultCode));
             if (_isClosing)
             {
                 return;
@@ -268,6 +336,7 @@ public partial class SerialAgentConnectionWindow : Window
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
+            LogHost("AGENT_COMMAND_CANCELLED", stop ? "Command=STOP" : "Command=RUN");
             if (!_isClosing)
             {
                 SetStatus("Agent command cancelled.");
@@ -364,6 +433,14 @@ public partial class SerialAgentConnectionWindow : Window
                 }
 
                 var record = MacStudioAgentDebugRecordCodec.Decode(frame);
+                LogHost(
+                    "AGENT_DEBUG_RECORD",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Sequence={0}; Severity={1}; Length={2}",
+                        record.Sequence,
+                        record.Severity,
+                        record.Message.Length));
                 await session.SendAsync(
                     MacStudioAgentDebugRecordCodec.CreateAcknowledgment(
                         session.SessionId,
@@ -375,6 +452,7 @@ public partial class SerialAgentConnectionWindow : Window
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            LogHost("AGENT_DEBUG_RECEIVE_CANCELLED", "CancellationToken requested");
         }
         catch (Exception error) when (
             error is IOException or
@@ -444,6 +522,10 @@ public partial class SerialAgentConnectionWindow : Window
         UpdateControls();
         SetStatus($"Connecting to {portName} at {baudRate:N0} baud...");
         AgentDetailsText.Text = "Waiting for the Agent handshake.";
+        _connectionStage = "create SerialPort";
+        LogHost(
+            "CONNECT_BEGIN",
+            $"COM={portName}; Baud={baudRate}; Parity=None; DataBits=8; StopBits=One; Handshake=None");
 
         try
         {
@@ -459,12 +541,15 @@ public partial class SerialAgentConnectionWindow : Window
                 WriteTimeout = 1000,
             };
             _serialPort = port;
+            _connectionStage = "SerialPort.Open";
             port.Open();
+            LogHost("SERIAL_PORT_OPEN", DescribeSerialPort(port));
 
             var serialStream = new CancellableSerialPortStream(port);
             _serialStream = serialStream;
             var session = new MacStudioAgentSession(serialStream);
             _session = session;
+            _connectionStage = "Agent HELLO handshake";
             var agent = await session.ConnectAsync(cancellation.Token);
             if (_isClosing)
             {
@@ -478,10 +563,22 @@ public partial class SerialAgentConnectionWindow : Window
                     $"The Agent does not advertise support for {baudRate:N0} baud.");
             }
 
+            _connectionStage = "send host diagnostics to Agent";
+            var hostDiagnostics = CreateHostDiagnosticsPayload(port, baudRate);
+            await session.SendAsync(
+                new MacStudioAgentFrame(
+                    (byte)MacStudioAgentMessageType.HostDiagnostics,
+                    session.SessionId,
+                    hostDiagnostics),
+                cancellation.Token);
+            LogHost(
+                "HOST_DIAGNOSTICS_SENT",
+                Encoding.ASCII.GetString(hostDiagnostics));
+
             SetStatus($"Connected to the MacStudio Agent on {portName}.");
             AgentDetailsText.Text = string.Format(
                 CultureInfo.InvariantCulture,
-                "Agent v{0}.{1}.{2} (protocol {3})\nSystem {4}.{5}; machine type {6}\nCapabilities: 0x{7:X8}; free bytes: {8:N0}\nSupported baud flags: 0x{9:X8}\nConnection baud rate: {10:N0}",
+                "Agent v{0}.{1}.{2} (protocol {3})\nSystem {4}.{5}; machine type {6}\nCapabilities: 0x{7:X8}; free bytes: {8:N0}\nSupported baud flags: 0x{9:X8}\nConnection baud rate: {10:N0}\nHost log: {11}",
                 agent.AgentMajor,
                 agent.AgentMinor,
                 agent.AgentPatch,
@@ -492,11 +589,18 @@ public partial class SerialAgentConnectionWindow : Window
                 agent.Capabilities,
                 agent.FreeBytes,
                 agent.SupportedBaudRates,
-                baudRate);
+                baudRate,
+                HostDiagnosticsPath);
             StartDebugReceiver(session);
+            LogHost(
+                "AGENT_HANDSHAKE_SUCCESS",
+                $"Agent={agent.AgentMajor}.{agent.AgentMinor}.{agent.AgentPatch}; System={agent.SystemMajor}.{agent.SystemMinor}; MachineType={agent.MachineType}; Capabilities=0x{agent.Capabilities:X8}; FreeBytes={agent.FreeBytes}; SupportedBaudFlags=0x{agent.SupportedBaudRates:X8}");
         }
         catch (OperationCanceledException)
         {
+            LogHost(
+                "CONNECT_CANCELLED",
+                $"Stage={_connectionStage}; cancellation requested by host.");
             if (!_isClosing)
             {
                 SetStatus("Connection cancelled.");
@@ -512,6 +616,9 @@ public partial class SerialAgentConnectionWindow : Window
                 TimeoutException or
                 Win32Exception)
         {
+            LogHost(
+                "CONNECT_FAILURE",
+                $"Stage={_connectionStage}; Type={error.GetType().FullName}; HResult=0x{error.HResult:X8}; {error}");
             if (!_isClosing)
             {
                 SetStatus($"Could not connect: {error.Message}");
@@ -520,6 +627,7 @@ public partial class SerialAgentConnectionWindow : Window
         }
         finally
         {
+            _connectionStage = "idle";
             if (ReferenceEquals(_connectionCancellation, cancellation))
             {
                 _connectionCancellation = null;
@@ -544,6 +652,10 @@ public partial class SerialAgentConnectionWindow : Window
             {
                 ComPortComboBox.Items.Add(port);
             }
+            _availableComPorts = ports;
+            LogHost(
+                "COM_PORTS_ENUMERATED",
+                ports.Length == 0 ? "(none)" : string.Join(", ", ports));
 
             if (selectedPort is not null &&
                 ports.Contains(selectedPort, StringComparer.OrdinalIgnoreCase))
@@ -565,6 +677,8 @@ public partial class SerialAgentConnectionWindow : Window
         }
         catch (Win32Exception error)
         {
+            _availableComPorts = [];
+            LogHost("COM_PORT_ENUMERATION_FAILURE", error.ToString());
             SetStatus($"Could not enumerate PC COM ports: {error.Message}");
         }
     }
@@ -627,6 +741,102 @@ public partial class SerialAgentConnectionWindow : Window
         if (!_isClosing)
         {
             StatusText.Text = status;
+            LogHost("STATUS", status);
+        }
+    }
+
+    private static string GetHostMachineDetails()
+    {
+        var applicationVersion =
+            typeof(SerialAgentConnectionWindow).Assembly.GetName().Version?.ToString()
+            ?? "unknown";
+        return string.Join(
+            "; ",
+            $"Machine={Environment.MachineName}",
+            $"OS={RuntimeInformation.OSDescription}",
+            $"OSArchitecture={RuntimeInformation.OSArchitecture}",
+            $"ProcessArchitecture={RuntimeInformation.ProcessArchitecture}",
+            $"64BitOS={Environment.Is64BitOperatingSystem}",
+            $"64BitProcess={Environment.Is64BitProcess}",
+            $"Runtime={RuntimeInformation.FrameworkDescription}",
+            $"RuntimeVersion={Environment.Version}",
+            $"ClassicMacStudioVersion={applicationVersion}");
+    }
+
+    private byte[] CreateHostDiagnosticsPayload(SerialPort port, int baudRate)
+    {
+        var details = string.Join(
+            "; ",
+            $"Host={Environment.MachineName}",
+            $"OS={RuntimeInformation.OSDescription}",
+            $"OSArch={RuntimeInformation.OSArchitecture}",
+            $"ProcessArch={RuntimeInformation.ProcessArchitecture}",
+            $"Runtime={RuntimeInformation.FrameworkDescription}",
+            $"IDE={typeof(SerialAgentConnectionWindow).Assembly.GetName().Version}",
+            $"COM={port.PortName}",
+            $"COMPorts={(_availableComPorts.Length == 0 ? "(none)" : string.Join(",", _availableComPorts))}",
+            $"Open={port.IsOpen}",
+            $"Baud={baudRate}",
+            "Format=8N1",
+            "Handshake=None",
+            "Probe=selected-port-open-and-Agent-HELLO");
+        details = SanitizeDiagnosticField(details);
+        if (details.Length > 512)
+        {
+            details = details[..509] + "...";
+        }
+
+        return Encoding.ASCII.GetBytes(details);
+    }
+
+    private static string DescribeSerialPort(SerialPort port) =>
+        string.Join(
+            "; ",
+            $"Port={port.PortName}",
+            $"Open={port.IsOpen}",
+            $"Baud={port.BaudRate}",
+            $"Parity={port.Parity}",
+            $"DataBits={port.DataBits}",
+            $"StopBits={port.StopBits}",
+            $"Handshake={port.Handshake}",
+            $"DtrEnable={port.DtrEnable}",
+            $"RtsEnable={port.RtsEnable}",
+            $"ReadTimeout={port.ReadTimeout}",
+            $"WriteTimeout={port.WriteTimeout}");
+
+    private static string SanitizeDiagnosticField(string value) =>
+        string.Concat(value.Select(character =>
+            char.IsControl(character) || character is '\r' or '\n'
+                ? ' '
+                : character));
+
+    private void LogHost(string eventName, string details)
+    {
+        var safeDetails = SanitizeDiagnosticField(details);
+        var line = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0:O}\t{1}\t{2}{3}",
+            DateTimeOffset.Now,
+            eventName,
+            safeDetails,
+            Environment.NewLine);
+        try
+        {
+            lock (_diagnosticsLock)
+            {
+                Directory.CreateDirectory(HostDiagnosticsDirectory);
+                File.AppendAllText(HostDiagnosticsPath, line, Encoding.UTF8);
+            }
+        }
+        catch (Exception error) when (
+            error is IOException or
+                UnauthorizedAccessException or
+                ArgumentException or
+                NotSupportedException)
+        {
+            DebugLogTextBox.AppendText(
+                $"[HOST LOG ERROR] {error}{Environment.NewLine}");
+            DebugLogTextBox.ScrollToEnd();
         }
     }
 }

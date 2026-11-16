@@ -7,11 +7,12 @@ session. It covers the MOXA UPort 1130I as a USB-to-RS-422 adapter.
 ## Support status
 
 The Agent currently supports one selected Macintosh serial port per run:
-Modem is the default, and Printer can be selected with the `AgentPort` file
-described below. The user can select any classic Serial Manager rate from
-300 through 57,600 baud in the IDE and in the Agent's **Baud Rate** menu. Both
-ends must use the same rate; 9600 is the default. The connection uses 8 data
-bits, no parity, one stop bit (8-N-1), and no flow control.
+Modem is the default, and the **Port** menu selects Modem or Printer while it
+is running. `AgentPort` can also set the startup port. The user can select any
+classic Serial Manager rate from 300 through 57,600 baud in the IDE and in the
+Agent's **Baud Rate** menu. Both ends must use the same rate; 9600 is the
+default. The connection uses 8 data bits, no parity, one stop bit (8-N-1), and
+no flow control.
 
 The Agent handshake, package transfer, RUN command, and debug-record
 acknowledgement were exercised with Basilisk II, System 7.5.5, and a virtual
@@ -62,6 +63,15 @@ and lets other software use the unselected port. Connect the cable to the port
 selected by the Agent. If the Agent and cable disagree, the PC will not receive
 a HELLO response.
 
+On a Macintosh Classic, the Printer port is commonly used for LocalTalk
+networking (AppleTalk). If AppleTalk is active on that port, it may contend
+with the Agent. In System 7, open the Chooser and set AppleTalk to **Inactive**,
+or use the AppleTalk/Network control panel to disable it or move it to another
+port. Disable LaserWriter Bridge as well if that extension is installed and
+sharing the printer port. The Agent does not change AppleTalk settings for you.
+The Modem port is typically available unless another application has opened
+it.
+
 ### Select Modem
 
 If `MacStudio/AgentPort` does not exist on the Agent's HFS volume, the Agent
@@ -69,17 +79,40 @@ opens the Modem port. The file may also explicitly contain `MODEM`.
 
 ### Select Printer
 
-Create a plain ASCII text file named exactly `AgentPort` inside the `MacStudio`
-folder at the root of the Agent's HFS volume. Its contents must be the single
-word `PRINTER`. A trailing carriage return or line feed is accepted, as are
-leading/trailing spaces and lowercase letters. Do not include a UTF-8 byte
-order mark, extra words, or a filename extension. Restart the Agent after
-changing this file.
+At startup, create a plain ASCII text file named exactly `AgentPort` inside
+the `MacStudio` folder at the root of the Agent's HFS volume. Its contents must
+be the single word `PRINTER`. A trailing carriage return or line feed is
+accepted, as are leading/trailing spaces and lowercase letters. Do not include
+a UTF-8 byte order mark, extra words, or a filename extension. While running,
+choose **Printer (Serial B)** from the Agent's **Port** menu instead; the Agent
+closes the old drivers, opens the selected port, and saves `AgentPort`.
 
-If the file contains any other value or is unreadable, the Agent does not
-start its serial service. Delete the file to restore the default Modem port.
-The host currently cannot query which physical Mac port the Agent selected;
-record the selected port with the target setup.
+If the startup file contains another value or is unreadable, the Agent writes
+the error to `MacStudio/Agent.log`, displays an alert, and does not start its
+serial service. Delete the file to restore the default Modem port. The host
+handshake does not identify which physical Mac port is selected; use the
+Agent's menu or its diagnostic log.
+
+### Diagnose Macintosh ports
+
+Choose **Agent → Diagnose Ports**. The Agent appends its results to
+`MacStudio/Agent.log`: input/output driver open and close results, Serial
+Manager status fields, receive-buffer counts, selected port and rate, and
+periodic receive/frame/error counters. The unselected port probe opens and
+closes its drivers without resetting the baud rate or transmitting test data.
+It can show whether the drivers opened, but cannot prove that a cable, adapter,
+peer, or RS-422 signal path works. A successful HELLO handshake is the
+end-to-end test.
+
+After connecting, the IDE sends a short host snapshot to the Agent log,
+including the host name, Windows version/architecture, .NET runtime, IDE
+version, enumerated COM-port names, and the selected COM-port configuration.
+The IDE also writes a persistent host-side log at
+`%LOCALAPPDATA%\ClassicMacStudio\Logs\SerialAgentHost.log`; use **Save Host
+Log...** in the connection window to export it. The host lists discovered COM
+ports but only attempts to open and handshake with the selected one. Windows
+open errors in the host log can indicate an unavailable or busy COM port.
+Neither log records raw serial payloads.
 
 ### Select the Agent baud rate
 
@@ -280,12 +313,13 @@ through the Agent's AppleEvent interface instead.
 
 | Symptom | Checks |
 |---|---|
-| No PC COM port in the IDE | Confirm the MOXA driver loaded, reconnect USB, then select **Refresh**. |
+| No PC COM port in the IDE | Confirm the MOXA driver loaded, reconnect USB, then select **Refresh**. The host log records the enumerated COM names or enumeration error. |
+| Port menu entries are gray | Rebuild and install the latest Agent. It explicitly enables both port menu items; use **Agent → Diagnose Ports** to record driver-open results. |
 | COM port is busy | Close the IDE Serial Terminal, another IDE instance, or other serial monitor using that COM port. |
-| No HELLO response | Verify the Agent is running; confirm Modem/Printer selection; confirm the Basilisk A/B mapping; check TX/RX crossover, pair polarity, ground, COM selection, and matching 8-N-1 settings. Start at 9600 baud, then confirm the selected rate in both the IDE and Agent configuration. |
+| No HELLO response | Check `MacStudio/Agent.log` and the host `SerialAgentHost.log`; verify the Agent is running; confirm Modem/Printer selection and whether AppleTalk uses Printer; confirm the Basilisk A/B mapping; check TX/RX crossover, pair polarity, ground, COM selection, and matching 8-N-1 settings. Start at 9600 baud, then confirm the selected rate in both logs. |
 | One-way traffic only | Check both differential pairs independently. Mac Tx must land on UPort Rx and UPort Tx on Mac Rx. |
 | Unstable or corrupted frames | Verify RS-422 mode (not RS-232 or 2-wire RS-485), polarity, grounding, cable quality, and no unwanted flow-control wiring. |
-| Agent does not start after selecting Printer | Remove or correct `MacStudio/AgentPort`; only `MODEM` and `PRINTER` are accepted. Restart the Agent. |
+| Agent does not start after selecting Printer | Check `MacStudio/Agent.log`; disable AppleTalk on Printer if needed. Remove or correct `MacStudio/AgentPort`; only `MODEM` and `PRINTER` are accepted. |
 | Package rejected | Verify the package is MacBinary II for an `APPL` application, the HFS destination name is safe, and the target has sufficient free space. |
 | Transfer stalls | Check cable integrity, the selected Agent port, flow-control settings, and whether either endpoint reset or closed its serial driver. Cancel from the IDE before closing the connection window. |
 
@@ -298,10 +332,11 @@ recheck the exact adapter datasheet and cable wiring first.
 - Real Macintosh and MOXA UPort 1130I electrical compatibility have not been
   physically tested.
 - System 7.0 has not been validated; emulator evidence is for System 7.5.5.
-- The Agent is a prototype with no installer or UI-based port selector. Its
-  Baud Rate menu changes and saves the rate; the `AgentPort` file still selects
-  Modem or Printer at startup. It also has no automatic active-project
-  packaging or reliable/retried debug delivery.
+- The Agent is a prototype with no installer. Its Port and Baud Rate menus
+  change and save settings. Diagnostics test driver access and status but
+  cannot electrically test the cable or peer without a successful handshake.
+  It also has no automatic active-project packaging or reliable/retried debug
+  delivery.
 - RUN and the probe's debug-record relay/acknowledgement were verified at
   57,600 baud in Basilisk II. STOP timed out while the probe's modal dialog was
   open and must be retested with a quit-responsive target. The generated
@@ -309,7 +344,8 @@ recheck the exact adapter datasheet and cable wiring first.
   does not automatically launch it.
 - Only one selected port and one active Agent session are supported.
 - Modem is the default when `AgentPort` is absent. The selected port is not
-  reported in HELLO_ACK.
+  reported in HELLO_ACK; it is recorded locally and included in the startup
+  and status lines in `MacStudio/Agent.log`.
 
 ## Reference documents
 
